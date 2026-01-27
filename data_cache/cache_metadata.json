@@ -1,0 +1,495 @@
+{
+  "0dfb6e8efea71e36e79bff69b6c11c86": {
+    "symbol": "RELIANCE.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:29.110200",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "df1d6c82e488968fe0ce4470c6d5a5ea": {
+    "symbol": "TCS.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:29.258935",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "485f91bb15a0be9afe125fd71e7956df": {
+    "symbol": "HDFCBANK.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:29.388291",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "a27e4b1bc0d25c57ba15d627cfcdfdef": {
+    "symbol": "INFY.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:29.534860",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "039d982f9fb7675f122e9e69875a5970": {
+    "symbol": "ICICIBANK.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:29.636565",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "60ee4fdc81765ea70a088371b4671b1a": {
+    "symbol": "HINDUNILVR.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:29.740489",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "39c32db600b8fb42c26806632ce94b68": {
+    "symbol": "SBIN.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:29.831976",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "2f7a430a371ad08e47bd7409a3deb452": {
+    "symbol": "BHARTIARTL.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:29.917033",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "cca71df87c2dca18b617af31c82d658b": {
+    "symbol": "KOTAKBANK.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.047446",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "a76e24e6b95c5c07bf448b48b25736ee": {
+    "symbol": "ITC.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.166374",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "131a1e9001b8f22e3be43e5db2375804": {
+    "symbol": "LT.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.285798",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "1d79095b7972c1271136857ffd94b872": {
+    "symbol": "AXISBANK.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.384167",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "a6be549a23933540a473325a37e5ff27": {
+    "symbol": "ASIANPAINT.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.481883",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "1dc0625c638300d6c296def8e2146720": {
+    "symbol": "MARUTI.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.569837",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "3f758ca9621ea4e3483ac09c71c673a6": {
+    "symbol": "HCLTECH.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.671294",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "dca22071d4333a451334f89b8a480b7c": {
+    "symbol": "SUNPHARMA.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.775457",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "be0d432366d90cf179b024c76f6abc2c": {
+    "symbol": "TITAN.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.855264",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "b45a758bb43dcc20080f2efbccfa58a0": {
+    "symbol": "BAJFINANCE.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:30.979452",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "d1ebfc2b88a3d3dbb0c9295534bc3820": {
+    "symbol": "WIPRO.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:31.085432",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "3980aba270f83ee01053b07db91bd078": {
+    "symbol": "ULTRACEMCO.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:31.197297",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "58eb65a7020eef605329c23b6a08fe1a": {
+    "symbol": "NESTLEIND.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:31.298068",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "3a0feec731603b5a0da129dab4c212bd": {
+    "symbol": "POWERGRID.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:31.684723",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "d5f84a2895af5490ca3ab027d7f07d9e": {
+    "symbol": "NTPC.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:31.924812",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "a5f8d2cc04fd279365c529797daa89e6": {
+    "symbol": "TECHM.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:32.031931",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "3084c9adb95bc80c5ad655a3b96b267f": {
+    "symbol": "M&M.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:32.138381",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "37a1f8a3225097475269d661364b9edc": {
+    "symbol": "TATASTEEL.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:32.239551",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "7767e48e236b77b41da7d8ccf31bf361": {
+    "symbol": "INDUSINDBK.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:32.336155",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "e9d6e84ce1d15c2d278c3c4094f53a4e": {
+    "symbol": "ONGC.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:32.484868",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  },
+  "d0a4e8df2588aa4fdad93c3a859e9715": {
+    "symbol": "JSWSTEEL.NS",
+    "start_date": "2023-01-27",
+    "end_date": "2026-01-26",
+    "cached_at": "2026-01-26T19:02:32.593024",
+    "rows": 741,
+    "columns": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "adj_close",
+      "volume",
+      "dividends",
+      "splits"
+    ]
+  }
+}
