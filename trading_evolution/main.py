@@ -413,6 +413,7 @@ class EvolutionOrchestrator:
             for split_name, df in data.items():
                 if df is not None and len(df) > 0:
                     indicators = self.indicator_calculator.calculate_all(df)
+                    indicators = self.indicator_calculator.rename_to_dna_names(indicators)
 
                     if symbol not in self._indicator_data:
                         self._indicator_data[symbol] = {}

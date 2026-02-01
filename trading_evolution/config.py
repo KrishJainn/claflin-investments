@@ -46,7 +46,7 @@ class RiskConfig:
 @dataclass
 class PortfolioConfig:
     """Portfolio configuration."""
-    initial_capital: float = 100_000.0
+    initial_capital: float = 100_000.0  # 100K USD
     allow_short: bool = True
     allow_position_flip: bool = True  # Can flip from long to short directly
 
@@ -89,14 +89,14 @@ class EvolutionConfig:
 
 @dataclass
 class FitnessConfig:
-    """Fitness function weights - optimized for high win rate + profit."""
-    net_profit_weight: float = 0.30  # Profit matters but not everything
-    sharpe_ratio_weight: float = 0.25  # Risk-adjusted returns
-    max_drawdown_weight: float = 0.15  # Penalize large drawdowns
-    consistency_weight: float = 0.30  # HEAVILY weight win rate consistency
-    min_trades_for_validity: int = 50  # Require more trades for statistical significance
-    min_win_rate: float = 0.55  # Minimum 55% win rate required
-    max_acceptable_drawdown: float = 0.20  # Tighter drawdown limit
+    """Fitness function weights - BALANCED HYBRID (profit + risk-adjusted)."""
+    net_profit_weight: float = 0.40  # Strong profit focus
+    sharpe_ratio_weight: float = 0.30  # Significant risk-adjustment
+    max_drawdown_weight: float = 0.15  # Penalize extreme drawdowns
+    consistency_weight: float = 0.15  # Win rate consistency
+    min_trades_for_validity: int = 45  # Balanced trade requirement
+    min_win_rate: float = 0.45  # Accept moderate win rate for profits
+    max_acceptable_drawdown: float = 0.30  # Moderate drawdown tolerance
 
 
 @dataclass

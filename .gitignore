@@ -1,7 +1,68 @@
-__pycache__/
-*.pyc
-.DS_Store
+# Environment files with secrets
 .env
+.env.local
+.env.*.local
+
+# API keys
+*api_key*
+*apikey*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
 venv/
+ENV/
+env/
+
+# IDE
 .idea/
 .vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Trading data
+paper_trades/
+data_cache/
+*.csv
+*.json
+!package.json
+*.parquet
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Reports
+reports/
+
+# Logs
+*.log
+
+# Stderr logs
+sim_stderr*.log
+smoke_test_stderr.log
