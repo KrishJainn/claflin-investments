@@ -21,6 +21,7 @@ from aqtis.memory.memory_layer import MemoryLayer
 from aqtis.llm.gemini_provider import GeminiProvider
 from aqtis.llm.base import MockLLMProvider
 from aqtis.orchestrator.orchestrator import MultiAgentOrchestrator
+from aqtis.knowledge.knowledge_manager import KnowledgeManager
 
 
 def _setup_logging(level: str = "INFO"):
@@ -356,6 +357,143 @@ def query(ctx, query):
         "query": query,
     })
     _print_json(result)
+
+
+# ─────────────────────────────────────────────────────────────────
+# KNOWLEDGE COMMANDS
+# ─────────────────────────────────────────────────────────────────
+
+@cli.group()
+def knowledge():
+    """Knowledge base management commands."""
+    pass
+
+
+def _get_knowledge_manager(config_path=None):
+    """Initialize a KnowledgeManager."""
+    config = load_config(config_path)
+    _setup_logging(config.system.log_level)
+    from aqtis.memory.vector_store import VectorStore
+    vectors = VectorStore(str(config.system.vector_db_path))
+    return KnowledgeManager(vectors, knowledge_base_dir="knowledge_base")
+
+
+@knowledge.command(name="ingest-all")
+@click.pass_context
+def knowledge_ingest_all(ctx):
+    """Ingest all knowledge sources."""
+    km = _get_knowledge_manager(ctx.obj.get("config_path"))
+
+    click.echo("Ingesting all knowledge sources...")
+    result = km.ingest_all()
+
+    click.echo(f"\nDocuments ingested: {result['total_documents_ingested']}")
+    click.echo(f"Chunks created:     {result['total_chunks_created']}")
+    click.echo(f"Errors:             {result['total_errors']}")
+
+    for source, data in result.get("by_source", {}).items():
+        click.echo(f"\n  [{source}]")
+        click.echo(f"    Documents: {data.get('documents_ingested', 0)}")
+        click.echo(f"    Chunks:    {data.get('chunks_created', 0)}")
+        if data.get("errors"):
+            for err in data["errors"]:
+                click.echo(f"    Error: {err}")
+
+
+@knowledge.command(name="ingest-markdown")
+@click.option("--category", default=None, help="Category subdirectory to ingest")
+@click.pass_context
+def knowledge_ingest_markdown(ctx, category):
+    """Ingest curated markdown knowledge files."""
+    km = _get_knowledge_manager(ctx.obj.get("config_path"))
+
+    click.echo("Ingesting markdown knowledge base...")
+    result = km.ingest_markdown(category=category)
+
+    click.echo(f"Documents ingested: {result['documents_ingested']}")
+    click.echo(f"Chunks created:     {result['chunks_created']}")
+    if result.get("errors"):
+        for err in result["errors"]:
+            click.echo(f"  Error: {err}")
+
+
+@knowledge.command(name="ingest-ssrn")
+@click.option("--query", required=True, help="SSRN search query")
+@click.option("--max-papers", default=20, help="Maximum papers to ingest")
+@click.pass_context
+def knowledge_ingest_ssrn(ctx, query, max_papers):
+    """Ingest SSRN working papers matching a query."""
+    km = _get_knowledge_manager(ctx.obj.get("config_path"))
+
+    click.echo(f"Searching SSRN for: {query}")
+    result = km.ingest_ssrn(query=query, max_papers=max_papers)
+
+    click.echo(f"Papers ingested: {result['documents_ingested']}")
+    click.echo(f"Chunks created:  {result['chunks_created']}")
+    if result.get("errors"):
+        for err in result["errors"]:
+            click.echo(f"  Error: {err}")
+
+
+@knowledge.command(name="ingest-sec")
+@click.option("--ticker", required=True, help="Stock ticker symbol")
+@click.option("--filing-type", default="10-K", help="SEC filing type")
+@click.option("--num-filings", default=3, help="Number of filings to fetch")
+@click.pass_context
+def knowledge_ingest_sec(ctx, ticker, filing_type, num_filings):
+    """Ingest SEC EDGAR filings for a ticker."""
+    km = _get_knowledge_manager(ctx.obj.get("config_path"))
+
+    click.echo(f"Fetching {filing_type} filings for {ticker}...")
+    result = km.ingest_sec(ticker=ticker, filing_type=filing_type, num_filings=num_filings)
+
+    click.echo(f"Filings ingested: {result['documents_ingested']}")
+    click.echo(f"Chunks created:   {result['chunks_created']}")
+    if result.get("errors"):
+        for err in result["errors"]:
+            click.echo(f"  Error: {err}")
+
+
+@knowledge.command(name="search")
+@click.argument("query")
+@click.option("--top-k", default=10, help="Number of results")
+@click.option("--category", default=None, help="Filter by category")
+@click.pass_context
+def knowledge_search(ctx, query, top_k, category):
+    """Search the knowledge base."""
+    km = _get_knowledge_manager(ctx.obj.get("config_path"))
+
+    click.echo(f"Searching knowledge base: {query}")
+    results = km.search(query, top_k=top_k, category=category)
+
+    if not results:
+        click.echo("No results found.")
+        return
+
+    click.echo(f"\nFound {len(results)} results:\n")
+    for i, r in enumerate(results, 1):
+        meta = r.get("metadata", {})
+        category_str = meta.get("category", "")
+        topic_str = meta.get("topic", "")
+        section_str = meta.get("section", "")
+        source_str = meta.get("source", "")
+        distance = r.get("distance", "N/A")
+
+        click.echo(f"  {i}. [{source_str}] {category_str}/{topic_str}")
+        if section_str:
+            click.echo(f"     Section: {section_str}")
+        click.echo(f"     Distance: {distance}")
+        click.echo(f"     {r.get('text', '')[:150]}...")
+        click.echo()
+
+
+@knowledge.command(name="stats")
+@click.pass_context
+def knowledge_stats(ctx):
+    """Show knowledge base statistics."""
+    km = _get_knowledge_manager(ctx.obj.get("config_path"))
+    stats = km.get_stats()
+    _print_json(stats)
 
 
 # ─────────────────────────────────────────────────────────────────

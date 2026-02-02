@@ -45,6 +45,7 @@ llm:
 market_data:
   primary_provider: yahoo
   symbols:
+    # NIFTY 50 - Top 40
     - RELIANCE.NS
     - TCS.NS
     - HDFCBANK.NS
@@ -65,13 +66,33 @@ market_data:
     - BAJFINANCE.NS
     - WIPRO.NS
     - ULTRACEMCO.NS
+    - NESTLEIND.NS
+    - NTPC.NS
+    - POWERGRID.NS
+    - BAJAJ-AUTO.NS
+    - ONGC.NS
+    - M&M.NS
+    - ADANIENT.NS
+    - ADANIPORTS.NS
+    - JSWSTEEL.NS
+    - TATASTEEL.NS
+    - TECHM.NS
+    - INDUSINDBK.NS
+    - HINDALCO.NS
+    - DRREDDY.NS
+    - CIPLA.NS
+    - BPCL.NS
+    - DIVISLAB.NS
+    - BRITANNIA.NS
+    - EICHERMOT.NS
+    - APOLLOHOSP.NS
   data_years: 3
   cache_ttl_hours: 24
 
 execution:
   order_type: market
   slippage_estimate: 0.001
-  initial_capital: 100000.0
+  initial_capital: 100000.0  # $100K USD
 
 regime:
   n_regimes: 5

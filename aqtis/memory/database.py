@@ -188,6 +188,89 @@ class StructuredDB:
                     created_at TEXT DEFAULT (datetime('now'))
                 );
 
+                -- Coach sessions (from 5-player coach model)
+                CREATE TABLE IF NOT EXISTS coach_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    strategy_id TEXT,
+                    trading_date TEXT,
+                    regime TEXT,
+                    advice TEXT,
+                    weight_changes INTEGER DEFAULT 0,
+                    entry_change REAL DEFAULT 0,
+                    exit_change REAL DEFAULT 0,
+                    mistakes_json TEXT,
+                    weight_recs_json TEXT,
+                    opportunities_json TEXT,
+                    source TEXT DEFAULT 'rule_based',
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+
+                -- Strategy snapshots (from 5-player model)
+                CREATE TABLE IF NOT EXISTS strategy_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy_id TEXT,
+                    snapshot_type TEXT,
+                    label TEXT,
+                    weights_json TEXT,
+                    entry_threshold REAL,
+                    exit_threshold REAL,
+                    stop_loss_multiplier REAL,
+                    total_trades INTEGER DEFAULT 0,
+                    win_rate REAL,
+                    net_pnl REAL,
+                    sharpe REAL,
+                    sortino REAL,
+                    max_drawdown REAL,
+                    profit_factor REAL,
+                    regime_performance_json TEXT,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+
+                -- Indicator-regime performance stats (from 5-player model)
+                CREATE TABLE IF NOT EXISTS indicator_regime_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    indicator TEXT NOT NULL,
+                    regime TEXT NOT NULL,
+                    total_trades INTEGER DEFAULT 0,
+                    avg_pnl REAL,
+                    win_rate REAL,
+                    contribution_score REAL,
+                    predictive_accuracy REAL,
+                    consistency_score REAL,
+                    information_ratio REAL,
+                    updated_at TEXT
+                );
+
+                -- Simulation runs (cross-run learning from 5-player model)
+                CREATE TABLE IF NOT EXISTS sim_runs (
+                    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_number INTEGER,
+                    session_id TEXT,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    days INTEGER,
+                    symbols INTEGER,
+                    team_pnl REAL,
+                    team_return REAL,
+                    config_json TEXT,
+                    notes TEXT
+                );
+
+                -- Indicator scores per trade (deep diagnostics)
+                CREATE TABLE IF NOT EXISTS indicator_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trade_id TEXT,
+                    indicator TEXT NOT NULL,
+                    weight_used REAL,
+                    correlation_with_pnl REAL,
+                    predictive_accuracy REAL,
+                    signal_quality_score REAL,
+                    verdict TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    FOREIGN KEY (trade_id) REFERENCES trades(trade_id)
+                );
+
                 -- Indexes
                 CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy_id);
@@ -200,6 +283,13 @@ class StructuredDB:
 
                 CREATE INDEX IF NOT EXISTS idx_market_state_timestamp ON market_state(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_risk_events_timestamp ON risk_events(timestamp);
+
+                CREATE INDEX IF NOT EXISTS idx_coach_strategy ON coach_sessions(strategy_id);
+                CREATE INDEX IF NOT EXISTS idx_coach_date ON coach_sessions(trading_date);
+                CREATE INDEX IF NOT EXISTS idx_strategy_snap ON strategy_snapshots(strategy_id);
+                CREATE INDEX IF NOT EXISTS idx_ind_regime ON indicator_regime_stats(indicator, regime);
+                CREATE INDEX IF NOT EXISTS idx_sim_runs ON sim_runs(run_number);
+                CREATE INDEX IF NOT EXISTS idx_ind_scores_trade ON indicator_scores(trade_id);
             """)
 
     # ─────────────────────────────────────────────────────────────────
@@ -663,6 +753,10 @@ class StructuredDB:
             strat_count = conn.execute("SELECT COUNT(*) as c FROM strategies").fetchone()["c"]
             state_count = conn.execute("SELECT COUNT(*) as c FROM market_state").fetchone()["c"]
             event_count = conn.execute("SELECT COUNT(*) as c FROM risk_events").fetchone()["c"]
+            coach_count = conn.execute("SELECT COUNT(*) as c FROM coach_sessions").fetchone()["c"]
+            snap_count = conn.execute("SELECT COUNT(*) as c FROM strategy_snapshots").fetchone()["c"]
+            run_count = conn.execute("SELECT COUNT(*) as c FROM sim_runs").fetchone()["c"]
+            ind_stat_count = conn.execute("SELECT COUNT(*) as c FROM indicator_regime_stats").fetchone()["c"]
 
             return {
                 "trades": trade_count,
@@ -670,4 +764,379 @@ class StructuredDB:
                 "strategies": strat_count,
                 "market_states": state_count,
                 "risk_events": event_count,
+                "coach_sessions": coach_count,
+                "strategy_snapshots": snap_count,
+                "sim_runs": run_count,
+                "indicator_regime_stats": ind_stat_count,
             }
+
+    # ─────────────────────────────────────────────────────────────────
+    # COACH SESSION OPERATIONS (from 5-player model)
+    # ─────────────────────────────────────────────────────────────────
+
+    def record_coach_session(
+        self,
+        strategy_id: str,
+        trading_date: str,
+        regime: str,
+        advice: str,
+        weight_changes: int = 0,
+        entry_change: float = 0,
+        exit_change: float = 0,
+        mistakes: List = None,
+        weight_recs: List = None,
+        opportunities: List = None,
+        source: str = "rule_based",
+        session_id: str = None,
+    ) -> int:
+        """Record a coach analysis + patch application."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO coach_sessions
+                   (session_id, strategy_id, trading_date, regime, advice,
+                    weight_changes, entry_change, exit_change,
+                    mistakes_json, weight_recs_json, opportunities_json, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    session_id or str(uuid.uuid4()),
+                    strategy_id, trading_date, regime, advice,
+                    weight_changes, entry_change, exit_change,
+                    json.dumps(mistakes or []),
+                    json.dumps(weight_recs or []),
+                    json.dumps(opportunities or []),
+                    source,
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_recent_coach_sessions(
+        self, strategy_id: str = None, limit: int = 10
+    ) -> List[Dict]:
+        """Get recent coach sessions."""
+        with self.get_connection() as conn:
+            if strategy_id:
+                rows = conn.execute(
+                    """SELECT * FROM coach_sessions
+                       WHERE strategy_id = ?
+                       ORDER BY id DESC LIMIT ?""",
+                    (strategy_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM coach_sessions ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_coach_advice_effectiveness(self, strategy_id: str) -> List[Dict]:
+        """Check if coach patches helped or hurt by comparing P&L before/after."""
+        with self.get_connection() as conn:
+            sessions = conn.execute(
+                """SELECT id, trading_date, regime, advice, weight_changes
+                   FROM coach_sessions
+                   WHERE strategy_id = ?
+                   ORDER BY id""",
+                (strategy_id,),
+            ).fetchall()
+
+            results = []
+            for sess in sessions:
+                date = sess["trading_date"]
+                before = conn.execute(
+                    """SELECT COALESCE(SUM(pnl), 0) as pnl
+                       FROM trades WHERE strategy_id = ? AND timestamp < ?""",
+                    (strategy_id, date),
+                ).fetchone()
+                after = conn.execute(
+                    """SELECT COALESCE(SUM(pnl), 0) as pnl
+                       FROM trades WHERE strategy_id = ? AND timestamp >= ?""",
+                    (strategy_id, date),
+                ).fetchone()
+                results.append({
+                    "date": date,
+                    "regime": sess["regime"],
+                    "advice": (sess["advice"] or "")[:80],
+                    "pnl_before": round(before["pnl"], 2) if before else 0,
+                    "pnl_after": round(after["pnl"], 2) if after else 0,
+                    "helped": (after["pnl"] if after else 0) > (before["pnl"] if before else 0),
+                })
+            return results
+
+    # ─────────────────────────────────────────────────────────────────
+    # STRATEGY SNAPSHOT OPERATIONS (from 5-player model)
+    # ─────────────────────────────────────────────────────────────────
+
+    def record_strategy_snapshot(
+        self,
+        strategy_id: str,
+        snapshot_type: str,
+        label: str = "",
+        weights: Dict = None,
+        entry_threshold: float = 0,
+        exit_threshold: float = 0,
+        stop_loss_multiplier: float = 2.0,
+        total_trades: int = 0,
+        win_rate: float = 0,
+        net_pnl: float = 0,
+        sharpe: float = 0,
+        sortino: float = 0,
+        max_drawdown: float = 0,
+        profit_factor: float = 0,
+        regime_performance: Dict = None,
+    ) -> int:
+        """Record a strategy configuration snapshot."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO strategy_snapshots
+                   (strategy_id, snapshot_type, label, weights_json,
+                    entry_threshold, exit_threshold, stop_loss_multiplier,
+                    total_trades, win_rate, net_pnl, sharpe, sortino,
+                    max_drawdown, profit_factor, regime_performance_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    strategy_id, snapshot_type, label,
+                    json.dumps(weights or {}),
+                    entry_threshold, exit_threshold, stop_loss_multiplier,
+                    total_trades, win_rate, net_pnl, sharpe, sortino,
+                    max_drawdown, profit_factor,
+                    json.dumps(regime_performance or {}),
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_best_strategy_snapshot(self, strategy_id: str) -> Optional[Dict]:
+        """Get the best-performing strategy snapshot."""
+        with self.get_connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM strategy_snapshots
+                   WHERE strategy_id = ? AND snapshot_type = 'end'
+                     AND total_trades > 0
+                   ORDER BY sharpe DESC LIMIT 1""",
+                (strategy_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_strategy_snapshot_history(
+        self, strategy_id: str, limit: int = 20
+    ) -> List[Dict]:
+        """Get strategy snapshot history for evolution tracking."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM strategy_snapshots
+                   WHERE strategy_id = ?
+                   ORDER BY id DESC LIMIT ?""",
+                (strategy_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ─────────────────────────────────────────────────────────────────
+    # INDICATOR-REGIME STATS (from 5-player model)
+    # ─────────────────────────────────────────────────────────────────
+
+    def update_indicator_regime_stats(self, strategy_id: str = None):
+        """Recalculate indicator-regime performance from trade data."""
+        with self.get_connection() as conn:
+            conn.execute("DELETE FROM indicator_regime_stats")
+
+            where = "WHERE strategy_id = ?" if strategy_id else ""
+            params = (strategy_id,) if strategy_id else ()
+            rows = conn.execute(
+                f"""SELECT pnl, market_regime, return_attribution
+                    FROM trades {where}""",
+                params,
+            ).fetchall()
+
+            stats = {}
+            for row in rows:
+                regime = row["market_regime"] or "unknown"
+                pnl = row["pnl"] or 0
+                try:
+                    attribution = json.loads(row["return_attribution"] or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+                for ind_name, ind_val in attribution.items():
+                    key = (ind_name, regime)
+                    if key not in stats:
+                        stats[key] = {"pnls": [], "wins": 0, "total": 0}
+                    stats[key]["pnls"].append(pnl)
+                    stats[key]["total"] += 1
+                    if pnl > 0:
+                        stats[key]["wins"] += 1
+
+            now = datetime.now().isoformat()
+            insert_rows = []
+            for (ind, regime), s in stats.items():
+                if s["total"] < 3:
+                    continue
+                avg_pnl = sum(s["pnls"]) / len(s["pnls"])
+                win_rate = s["wins"] / s["total"] if s["total"] > 0 else 0
+                contribution = avg_pnl / max(1, abs(avg_pnl)) if avg_pnl != 0 else 0
+                insert_rows.append((
+                    ind, regime, s["total"], round(avg_pnl, 2),
+                    round(win_rate, 4), round(contribution, 4),
+                    0, 0, 0, now,
+                ))
+
+            conn.executemany(
+                """INSERT INTO indicator_regime_stats
+                   (indicator, regime, total_trades, avg_pnl, win_rate,
+                    contribution_score, predictive_accuracy, consistency_score,
+                    information_ratio, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                insert_rows,
+            )
+            logger.info(f"Updated {len(insert_rows)} indicator-regime stats")
+
+    def get_indicator_regime_stats(self, regime: str = None) -> List[Dict]:
+        """Get indicator performance stats, optionally by regime."""
+        with self.get_connection() as conn:
+            if regime:
+                rows = conn.execute(
+                    """SELECT * FROM indicator_regime_stats
+                       WHERE regime = ? ORDER BY avg_pnl DESC""",
+                    (regime,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM indicator_regime_stats ORDER BY avg_pnl DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_top_indicators_for_regime(self, regime: str, limit: int = 10) -> List[Dict]:
+        """Get the best-performing indicators for a given regime."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM indicator_regime_stats
+                   WHERE regime = ? AND total_trades >= 5
+                   ORDER BY contribution_score DESC LIMIT ?""",
+                (regime, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ─────────────────────────────────────────────────────────────────
+    # SIMULATION RUN OPERATIONS (cross-run learning)
+    # ─────────────────────────────────────────────────────────────────
+
+    def start_run(
+        self, run_number: int, session_id: str, days: int, symbols: int, config: Dict
+    ) -> int:
+        """Record the start of a new simulation/backtest run."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO sim_runs
+                   (run_number, session_id, started_at, days, symbols, config_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (run_number, session_id, datetime.now().isoformat(),
+                 days, symbols, json.dumps(config, default=str)),
+            )
+            return cursor.lastrowid
+
+    def end_run(self, run_id: int, team_pnl: float, team_return: float, notes: str = ""):
+        """Record the completion of a simulation run."""
+        with self.get_connection() as conn:
+            conn.execute(
+                """UPDATE sim_runs
+                   SET completed_at = ?, team_pnl = ?, team_return = ?, notes = ?
+                   WHERE run_id = ?""",
+                (datetime.now().isoformat(), team_pnl, team_return, notes, run_id),
+            )
+
+    def get_all_runs(self) -> List[Dict]:
+        """Get all completed simulation runs."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM sim_runs
+                   WHERE completed_at IS NOT NULL
+                   ORDER BY run_id""",
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_run_count(self) -> int:
+        """Get total number of completed runs."""
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM sim_runs WHERE completed_at IS NOT NULL"
+            ).fetchone()
+            return row["cnt"] if row else 0
+
+    def get_cross_run_pnl_trend(self) -> List[Dict]:
+        """Get P&L trend across all runs."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                """SELECT run_id, run_number, team_pnl, team_return
+                   FROM sim_runs WHERE completed_at IS NOT NULL
+                   ORDER BY run_id""",
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ─────────────────────────────────────────────────────────────────
+    # INDICATOR SCORE OPERATIONS
+    # ─────────────────────────────────────────────────────────────────
+
+    def store_indicator_scores(self, trade_id: str, scores: List[Dict]):
+        """Store per-indicator scores for a trade."""
+        with self.get_connection() as conn:
+            for s in scores:
+                conn.execute(
+                    """INSERT INTO indicator_scores
+                       (trade_id, indicator, weight_used, correlation_with_pnl,
+                        predictive_accuracy, signal_quality_score, verdict)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        trade_id,
+                        s.get("indicator", s.get("name", "")),
+                        s.get("weight_used", 0),
+                        s.get("correlation_with_pnl", 0),
+                        s.get("predictive_accuracy", 0),
+                        s.get("signal_quality_score", 0),
+                        s.get("verdict", "neutral"),
+                    ),
+                )
+
+    def get_indicator_scores_for_trade(self, trade_id: str) -> List[Dict]:
+        """Get indicator scores for a specific trade."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM indicator_scores WHERE trade_id = ? ORDER BY signal_quality_score DESC",
+                (trade_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ─────────────────────────────────────────────────────────────────
+    # ADVANCED QUERIES (cross-system analytics)
+    # ─────────────────────────────────────────────────────────────────
+
+    def get_strategy_regime_performance(self, strategy_id: str) -> List[Dict]:
+        """Get per-regime performance for a strategy across all trades."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                """SELECT market_regime,
+                          COUNT(*) as trades,
+                          SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+                          ROUND(AVG(pnl), 2) as avg_pnl,
+                          ROUND(SUM(pnl), 2) as total_pnl
+                   FROM trades
+                   WHERE strategy_id = ?
+                   GROUP BY market_regime
+                   ORDER BY total_pnl DESC""",
+                (strategy_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_strategy_asset_performance(self, strategy_id: str) -> List[Dict]:
+        """Get per-asset performance for a strategy."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                """SELECT asset,
+                          COUNT(*) as trades,
+                          SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+                          ROUND(AVG(pnl), 2) as avg_pnl,
+                          ROUND(SUM(pnl), 2) as total_pnl
+                   FROM trades
+                   WHERE strategy_id = ?
+                   GROUP BY asset
+                   ORDER BY total_pnl DESC""",
+                (strategy_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]

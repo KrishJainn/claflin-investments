@@ -720,7 +720,9 @@ class FivePlayerSimulation:
                  use_coach: bool = True, coach_interval: int = 1,
                  player_overrides: Dict[str, Dict] = None,
                  run_label: str = "",
-                 use_knowledge: bool = False):
+                 use_knowledge: bool = False,
+                 memory=None,
+                 run_number: int = 1):
         self.days = days
         self.max_symbols = max_symbols
         self.use_coach = use_coach
@@ -728,6 +730,8 @@ class FivePlayerSimulation:
         self.player_overrides = player_overrides or {}
         self.run_label = run_label
         self.use_knowledge = use_knowledge
+        self.memory = memory  # MemoryManager instance (None = disabled)
+        self.run_number = run_number
 
         # Shared infra (built once in setup)
         self.universe = IndicatorUniverse()
@@ -861,6 +865,14 @@ class FivePlayerSimulation:
                 lines.append("If too many signal exits (X) with losses, the exit threshold may be too sensitive.")
                 lines.append("If the coach identified specific regimes (choppy, trending), optimize for the dominant regime.")
 
+                # Append memory context if available
+                if self.memory:
+                    mem_ctx = self.memory.get_optimizer_context(pid)
+                    if mem_ctx and "No previous run" not in mem_ctx:
+                        lines.append("")
+                        lines.append("## HISTORICAL MEMORY (from all past runs)")
+                        lines.append(mem_ctx)
+
                 return "\n".join(lines)
 
             # Build effective config: use previous weights as starting point if available
@@ -936,6 +948,24 @@ class FivePlayerSimulation:
         for st in self.players.values():
             self._auto_calibrate(st)
         print("[Setup] Thresholds auto-calibrated\n")
+
+        # 8. Memory: start run + record initial strategy snapshots
+        if self.memory:
+            self.memory.start_run(
+                run_number=self.run_number,
+                days=self.days,
+                symbols=self.max_symbols,
+                config={pid: {"label": cfg["label"], "original": cfg.get("original", "")}
+                        for pid, cfg in PLAYERS.items()}
+            )
+            for pid, st in self.players.items():
+                self.memory.record_strategy_snapshot(
+                    player_id=pid, snapshot_type="start",
+                    label=st.label, weights=dict(st.weights),
+                    entry_threshold=st.entry_threshold,
+                    exit_threshold=st.exit_threshold,
+                    min_hold_bars=st.min_hold_bars,
+                )
 
     def _init_player(self, pid: str, cfg: Dict) -> PlayerState:
         # Use overrides from previous run if available
@@ -1378,6 +1408,12 @@ class FivePlayerSimulation:
             trades_detail=trades_detail,
         )
 
+        # Inject memory context if available
+        if self.memory:
+            mem_ctx = self.memory.get_coach_context(pid, trading_date.isoformat())
+            if mem_ctx:
+                prompt += f"\n\n## HISTORICAL CONTEXT\n{mem_ctx}\n"
+
         try:
             client = genai.Client(api_key=self.coach.config.llm.api_key)
             import signal as _sig
@@ -1442,6 +1478,27 @@ class FivePlayerSimulation:
         market_context = build_market_context(
             self.market_data, self.indicator_data, trading_date
         )
+
+        # Memory: record daily market snapshot
+        if self.memory:
+            changes = []
+            for sym, df in self.market_data.items():
+                day_bars = df[df.index.date == trading_date]
+                if not day_bars.empty:
+                    o = float(day_bars.iloc[0]["open"])
+                    c = float(day_bars.iloc[-1]["close"])
+                    changes.append({"symbol": sym, "change_pct": round((c - o) / o * 100, 2)})
+            advancers = sum(1 for c in changes if c["change_pct"] > 0)
+            decliners = sum(1 for c in changes if c["change_pct"] < 0)
+            avg_chg = sum(c["change_pct"] for c in changes) / max(1, len(changes))
+            bias = "BULLISH" if avg_chg > 0.5 else ("BEARISH" if avg_chg < -0.5 else "NEUTRAL")
+            top_movers = sorted(changes, key=lambda x: abs(x["change_pct"]), reverse=True)[:5]
+            self.memory.record_market_snapshot(
+                trading_date=trading_date.isoformat(),
+                advancers=advancers, decliners=decliners,
+                avg_change_pct=round(avg_chg, 2), market_bias=bias,
+                top_movers=top_movers, nifty_regime=bias.lower(),
+            )
 
         active_players = [
             (pid, st) for pid, st in self.players.items()
@@ -1525,6 +1582,20 @@ class FivePlayerSimulation:
                 print(f"    {pid}: Patch applied — {applied_weight_changes} weight changes, "
                       f"regime={regime}")
 
+                # Memory: record coach session
+                if self.memory:
+                    self.memory.record_coach_session(
+                        player_id=pid,
+                        trading_date=trading_date.isoformat(),
+                        regime=regime,
+                        advice=regime_advice[:200],
+                        weight_changes=applied_weight_changes,
+                        entry_change=round(entry_change, 4),
+                        exit_change=round(exit_change, 4),
+                        mistakes=mistakes,
+                        weight_recs=weight_recs[:3],
+                    )
+
     # ── Reporting ─────────────────────────────────────────────────────
 
     def _print_daily_summary(self, day_idx: int, trading_date: date):
@@ -1560,6 +1631,13 @@ class FivePlayerSimulation:
                 "trades": len(st.daily_trades),
                 "version": st.strategy_version,
             })
+
+            # Memory: record daily trades
+            if self.memory and st.daily_trades:
+                regime = "unknown"
+                if st.patches_applied:
+                    regime = st.patches_applied[-1].get("regime", "unknown")
+                self.memory.record_trades_batch(pid, st.daily_trades, regime)
 
             print(f"  {pid:<12} {st.label:<12} {len(st.daily_trades):<7} "
                   f"{wins}/{losses:<5} "
@@ -1618,14 +1696,34 @@ class FivePlayerSimulation:
                 "patches": st.patches_applied,
             }
 
+        team_return = team_pnl / 500_000 * 100
         print(f"\n  Team total P&L: ${team_pnl:,.0f}")
         print(f"  Capital deployed: $500,000 (5 x $100K)")
-        print(f"  Team return: {team_pnl / 500_000 * 100:.2f}%")
+        print(f"  Team return: {team_return:.2f}%")
 
         out_path = Path("simulation_5player_results.json")
         with open(out_path, "w") as f:
             json.dump(results, f, indent=2, default=str)
         print(f"\n  Results saved to {out_path}")
+
+        # Memory: record final strategy snapshots + end run
+        if self.memory:
+            for pid, st in self.players.items():
+                metrics = st.player.portfolio.get_performance_metrics()
+                self.memory.record_strategy_snapshot(
+                    player_id=pid, snapshot_type="end",
+                    label=st.label, weights=dict(st.weights),
+                    entry_threshold=st.entry_threshold,
+                    exit_threshold=st.exit_threshold,
+                    min_hold_bars=st.min_hold_bars,
+                    total_trades=metrics["total_trades"],
+                    win_rate=round(metrics["win_rate"] * 100, 1),
+                    net_pnl=round(metrics["net_profit"], 2),
+                    sharpe=round(metrics["sharpe_ratio"], 2),
+                )
+            self.memory.end_run(team_pnl, team_return)
+            mem_runs = self.memory.get_run_count()
+            print(f"  [Memory] Run saved (total runs in memory: {mem_runs})")
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -1734,9 +1832,21 @@ def main():
                         help="Number of consecutive runs (coach learning carries over)")
     parser.add_argument("--knowledge", action="store_true",
                         help="Enable knowledge-based strategy optimization (uses trading books/research)")
+    parser.add_argument("--memory", action="store_true",
+                        help="Enable persistent memory (stores trades, coach sessions, market data across runs)")
     args = parser.parse_args()
 
     num_runs = max(1, args.runs)
+
+    # Initialize memory if requested
+    memory = None
+    if args.memory:
+        try:
+            from trading_evolution.memory import MemoryManager
+            memory = MemoryManager(db_path="trading_memory.db")
+            print(f"[Memory] Enabled — persistent storage in trading_memory.db")
+        except ImportError as e:
+            print(f"[Memory] Could not load memory module: {e}")
 
     if num_runs == 1:
         # Single run (original behavior)
@@ -1746,6 +1856,8 @@ def main():
             use_coach=not args.no_coach,
             coach_interval=args.coach_interval,
             use_knowledge=args.knowledge,
+            memory=memory,
+            run_number=1,
         )
         sim.run()
         return
@@ -1769,6 +1881,8 @@ def main():
             player_overrides=carry_over,
             run_label=f"RUN {run_idx + 1}/{num_runs}",
             use_knowledge=args.knowledge,
+            memory=memory,
+            run_number=run_idx + 1,
         )
         sim.run()
 
@@ -1798,6 +1912,10 @@ def main():
     with open("simulation_all_runs_summary.json", "w") as f:
         json.dump(all_summaries, f, indent=2, default=str)
     print(f"\nAll run summaries saved to simulation_all_runs_summary.json")
+
+    # Print memory summary
+    if memory:
+        print(f"\n{memory.get_cross_run_summary()}")
 
 
 if __name__ == "__main__":

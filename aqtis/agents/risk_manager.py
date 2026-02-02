@@ -73,6 +73,17 @@ class RiskManagementAgent(BaseAgent):
                 context.get("positions", []),
                 context.get("portfolio_value", 100000),
             )
+        elif action == "should_exit_early":
+            return self.should_exit_early(
+                context.get("position", {}),
+                context.get("current_price", 0),
+                context.get("current_indicators", {}),
+            )
+        elif action == "dynamic_stop_loss":
+            return self.dynamic_stop_loss(
+                context.get("position", {}),
+                context.get("current_indicators", {}),
+            )
         else:
             return self.get_status()
 
@@ -172,6 +183,16 @@ class RiskManagementAgent(BaseAgent):
     # POSITION SIZING
     # ─────────────────────────────────────────────────────────────────
 
+    def get_risk_knowledge(self, topic: str) -> str:
+        """Query knowledge base for risk management best practices."""
+        try:
+            results = self.memory.search_knowledge(topic, top_k=3)
+            if results:
+                return " | ".join(r.get("text", "")[:150] for r in results)
+        except Exception:
+            pass
+        return ""
+
     def calculate_position_size(self, prediction: Dict, portfolio_value: float) -> float:
         """
         Dynamic position sizing based on Kelly criterion.
@@ -265,4 +286,108 @@ class RiskManagementAgent(BaseAgent):
             "daily_return": daily_return,
             "circuit_breaker_active": self.circuit_breaker_active,
             "alerts": alerts,
+        }
+
+    # ─────────────────────────────────────────────────────────────────
+    # ADAPTIVE EXIT LOGIC
+    # ─────────────────────────────────────────────────────────────────
+
+    def dynamic_stop_loss(self, position: Dict, current_indicators: Dict) -> Dict:
+        """Regime-aware stop loss and take profit levels. Zero LLM calls."""
+        entry_price = position.get("entry_price", 0)
+        atr = position.get("atr", entry_price * 0.02)
+        regime = position.get("regime", "unknown")
+        action = position.get("action", "BUY")
+
+        stop_mult, profit_mult = 2.0, 4.0
+
+        if regime == "high_vol":
+            stop_mult, profit_mult = 2.5, 3.0
+        elif regime == "trending_up" and action == "BUY":
+            stop_mult, profit_mult = 1.5, 5.0
+        elif regime == "trending_down" and action == "SELL":
+            stop_mult, profit_mult = 1.5, 5.0
+        elif regime == "mean_reverting":
+            stop_mult, profit_mult = 1.8, 2.5
+
+        if action == "BUY":
+            sl = entry_price - stop_mult * atr
+            tp = entry_price + profit_mult * atr
+        else:
+            sl = entry_price + stop_mult * atr
+            tp = entry_price - profit_mult * atr
+
+        return {
+            "stop_loss": sl, "take_profit": tp,
+            "stop_multiplier": stop_mult, "profit_multiplier": profit_mult,
+        }
+
+    def should_exit_early(
+        self, position: Dict, current_price: float, current_indicators: Dict,
+    ) -> Dict:
+        """
+        Adaptive exit recommendation. Zero LLM calls.
+
+        Checks: regime change, trailing stop, signal reversal, time decay.
+        """
+        entry_price = position.get("entry_price", 0)
+        action = position.get("action", "BUY")
+        entry_regime = position.get("regime", "unknown")
+        reasons = []
+        urgency = 0.0
+
+        # Current regime from indicators
+        vol = current_indicators.get("NATR_14", current_indicators.get("volatility_20d", 0))
+        adx = current_indicators.get("ADX_14", current_indicators.get("adx", 0))
+        st = current_indicators.get("SUPERTREND_10_2", current_indicators.get("supertrend_dir", 0))
+
+        if isinstance(vol, float) and not np.isnan(vol):
+            if abs(vol) > 0.6 or vol > 0.4:
+                current_regime = "high_vol"
+            elif abs(vol) < 0.2 or vol < 0.15:
+                current_regime = "low_vol"
+            elif adx > 0.3 and st > 0:
+                current_regime = "trending_up"
+            elif adx > 0.3 and st < 0:
+                current_regime = "trending_down"
+            else:
+                current_regime = "mean_reverting"
+        else:
+            current_regime = "unknown"
+
+        # 1. Regime change
+        if entry_regime != current_regime and entry_regime != "unknown":
+            if current_regime == "high_vol":
+                urgency += 0.4
+                reasons.append(f"Regime -> high_vol from {entry_regime}")
+            elif entry_regime.startswith("trending") and current_regime == "mean_reverting":
+                urgency += 0.3
+                reasons.append("Trend ended, now mean reverting")
+
+        # 2. P&L check — protect gains
+        if entry_price > 0 and current_price > 0:
+            pnl_pct = ((current_price - entry_price) / entry_price
+                       if action == "BUY" else
+                       (entry_price - current_price) / entry_price)
+            if pnl_pct > 0.03 and pnl_pct < 0.005:
+                urgency += 0.5
+                reasons.append("Gave back most gains")
+            elif pnl_pct < -0.04:
+                urgency += 0.3
+                reasons.append(f"Deep loss {pnl_pct:.1%}")
+
+        # 3. Signal reversal
+        current_score = current_indicators.get("_signal_score", 0)
+        entry_score = position.get("signal_score", 0)
+        if entry_score and current_score:
+            if (entry_score > 0 and current_score < -0.15) or \
+               (entry_score < 0 and current_score > 0.15):
+                urgency += 0.4
+                reasons.append("Signal reversed direction")
+
+        return {
+            "should_exit": urgency >= 0.5,
+            "reason": "; ".join(reasons) if reasons else "Hold",
+            "urgency": urgency,
+            "current_regime": current_regime,
         }

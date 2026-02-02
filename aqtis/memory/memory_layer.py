@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from .database import StructuredDB
 from .vector_store import VectorStore
+from .context_builder import ContextBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +22,14 @@ class MemoryLayer:
     Central interface for all memory operations.
 
     Combines structured storage (trades, predictions, strategies)
-    with semantic search (research papers, trade patterns).
+    with semantic search (research papers, trade patterns)
+    and LLM context generation (from 5-player coach model).
     """
 
     def __init__(self, db_path: str = "aqtis.db", vector_path: str = "aqtis_vectors"):
         self.db = StructuredDB(db_path)
         self.vectors = VectorStore(vector_path)
+        self.context = ContextBuilder(self.db)
 
     # ─────────────────────────────────────────────────────────────────
     # TRADE OPERATIONS
@@ -180,6 +183,18 @@ class MemoryLayer:
         return self.vectors.search_research(query, top_k)
 
     # ─────────────────────────────────────────────────────────────────
+    # KNOWLEDGE BASE OPERATIONS
+    # ─────────────────────────────────────────────────────────────────
+
+    def search_knowledge(self, query: str, top_k: int = 10) -> List[Dict]:
+        """Search the curated knowledge base."""
+        return self.vectors.search_knowledge(query, top_k)
+
+    def store_knowledge(self, document: Dict) -> str:
+        """Store a document in the knowledge base."""
+        return self.vectors.add_knowledge(document)
+
+    # ─────────────────────────────────────────────────────────────────
     # MARKET STATE OPERATIONS
     # ─────────────────────────────────────────────────────────────────
 
@@ -220,6 +235,94 @@ class MemoryLayer:
         db_stats = self.db.get_stats()
         vector_stats = self.vectors.get_stats()
         return {**db_stats, "vector_collections": vector_stats}
+
+    # ─────────────────────────────────────────────────────────────────
+    # COACH OPERATIONS (from 5-player model)
+    # ─────────────────────────────────────────────────────────────────
+
+    def record_coach_session(self, **kwargs) -> int:
+        """Record a coach analysis + patch application."""
+        return self.db.record_coach_session(**kwargs)
+
+    def get_recent_coach_sessions(self, strategy_id: str = None, limit: int = 10) -> List[Dict]:
+        """Get recent coach sessions."""
+        return self.db.get_recent_coach_sessions(strategy_id, limit)
+
+    def get_coach_advice_effectiveness(self, strategy_id: str) -> List[Dict]:
+        """Check if coach patches helped or hurt."""
+        return self.db.get_coach_advice_effectiveness(strategy_id)
+
+    # ─────────────────────────────────────────────────────────────────
+    # STRATEGY SNAPSHOT OPERATIONS (from 5-player model)
+    # ─────────────────────────────────────────────────────────────────
+
+    def record_strategy_snapshot(self, **kwargs) -> int:
+        """Record a strategy configuration snapshot."""
+        return self.db.record_strategy_snapshot(**kwargs)
+
+    def get_best_strategy_snapshot(self, strategy_id: str) -> Optional[Dict]:
+        """Get the best-performing strategy snapshot."""
+        return self.db.get_best_strategy_snapshot(strategy_id)
+
+    # ─────────────────────────────────────────────────────────────────
+    # INDICATOR-REGIME INTELLIGENCE (from 5-player model)
+    # ─────────────────────────────────────────────────────────────────
+
+    def update_indicator_regime_stats(self, strategy_id: str = None):
+        """Recalculate indicator-regime performance stats."""
+        self.db.update_indicator_regime_stats(strategy_id)
+
+    def get_indicator_regime_stats(self, regime: str = None) -> List[Dict]:
+        """Get indicator performance stats by regime."""
+        return self.db.get_indicator_regime_stats(regime)
+
+    def get_top_indicators_for_regime(self, regime: str, limit: int = 10) -> List[Dict]:
+        """Get the best-performing indicators for a regime."""
+        return self.db.get_top_indicators_for_regime(regime, limit)
+
+    # ─────────────────────────────────────────────────────────────────
+    # SIMULATION RUN OPERATIONS (cross-run learning)
+    # ─────────────────────────────────────────────────────────────────
+
+    def start_run(self, run_number: int, session_id: str, days: int, symbols: int, config: Dict) -> int:
+        """Record the start of a new simulation run."""
+        return self.db.start_run(run_number, session_id, days, symbols, config)
+
+    def end_run(self, run_id: int, team_pnl: float, team_return: float, notes: str = ""):
+        """Record the completion of a simulation run."""
+        self.db.end_run(run_id, team_pnl, team_return, notes)
+
+    def get_cross_run_pnl_trend(self) -> List[Dict]:
+        """Get P&L trend across all runs."""
+        return self.db.get_cross_run_pnl_trend()
+
+    # ─────────────────────────────────────────────────────────────────
+    # CONTEXT BUILDING (for LLM prompts)
+    # ─────────────────────────────────────────────────────────────────
+
+    def build_strategy_context(self, strategy_id: str) -> str:
+        """Build LLM context for strategy optimization."""
+        return self.context.build_strategy_context(strategy_id)
+
+    def build_coach_context(self, strategy_id: str, trading_date: str = "") -> str:
+        """Build LLM context for daily coach analysis."""
+        return self.context.build_coach_context(strategy_id, trading_date)
+
+    def build_pre_trade_context(self, signal: Dict) -> str:
+        """Build LLM context for pre-trade decision making."""
+        return self.context.build_pre_trade_context(signal)
+
+    def build_full_optimization_context(self, strategy_id: str) -> str:
+        """Build comprehensive context for strategy redesign."""
+        return self.context.build_full_optimization_context(strategy_id)
+
+    # ─────────────────────────────────────────────────────────────────
+    # INDICATOR SCORE STORAGE
+    # ─────────────────────────────────────────────────────────────────
+
+    def store_indicator_scores(self, trade_id: str, scores: List[Dict]):
+        """Store per-indicator scores for a trade."""
+        self.db.store_indicator_scores(trade_id, scores)
 
     # ─────────────────────────────────────────────────────────────────
     # HELPERS

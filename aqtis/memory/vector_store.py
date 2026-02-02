@@ -192,13 +192,83 @@ class VectorStore:
         return trades
 
     # ─────────────────────────────────────────────────────────────────
+    # KNOWLEDGE BASE OPERATIONS
+    # ─────────────────────────────────────────────────────────────────
+
+    def add_knowledge(self, document: Dict) -> str:
+        """
+        Add a document to the knowledge_base collection.
+
+        Args:
+            document: Dict with keys: id, text, metadata.
+
+        Returns:
+            Document ID.
+        """
+        collection = self._get_collection("knowledge_base")
+        doc_id = document.get("id", str(uuid.uuid4()))
+
+        metadata = document.get("metadata", {})
+        clean_metadata = {}
+        for k, v in metadata.items():
+            if isinstance(v, (str, int, float, bool)):
+                clean_metadata[k] = v
+            elif isinstance(v, list):
+                clean_metadata[k] = json.dumps(v)
+            elif v is not None:
+                clean_metadata[k] = str(v)
+
+        upsert_kwargs = {
+            "ids": [doc_id],
+            "documents": [document.get("text", "")],
+        }
+        if clean_metadata:
+            upsert_kwargs["metadatas"] = [clean_metadata]
+
+        collection.upsert(**upsert_kwargs)
+        return doc_id
+
+    def search_knowledge(self, query: str, top_k: int = 10) -> List[Dict]:
+        """
+        Semantic search through the knowledge base.
+
+        Args:
+            query: Natural language search query.
+            top_k: Number of results to return.
+
+        Returns:
+            List of matching documents with metadata and distance scores.
+        """
+        collection = self._get_collection("knowledge_base")
+        if collection.count() == 0:
+            return []
+
+        results = collection.query(
+            query_texts=[query],
+            n_results=min(top_k, collection.count()),
+        )
+
+        documents = []
+        if results and results["ids"] and results["ids"][0]:
+            for i, doc_id in enumerate(results["ids"][0]):
+                doc = {
+                    "id": doc_id,
+                    "text": results["documents"][0][i] if results["documents"] else "",
+                    "distance": results["distances"][0][i] if results.get("distances") else None,
+                    "metadata": results["metadatas"][0][i] if results.get("metadatas") else {},
+                }
+                documents.append(doc)
+
+        return documents
+
+    # ─────────────────────────────────────────────────────────────────
     # UTILITY
     # ─────────────────────────────────────────────────────────────────
 
     def get_stats(self) -> Dict:
         """Get collection statistics."""
         stats = {}
-        for name in ["trading_research", "trade_patterns"]:
+        for name in ["trading_research", "trade_patterns", "knowledge_base"]:
             try:
                 collection = self._get_collection(name)
                 stats[name] = collection.count()

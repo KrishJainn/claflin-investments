@@ -3,11 +3,18 @@ AQTIS Post-Mortem Agent.
 
 Analyzes completed trades to extract learnings, update strategy
 parameters, and generate natural language insights.
+
+Enhanced with 5-player coach model capabilities:
+- Structured mistake taxonomy (15 types from PostMarketAnalyzer)
+- Indicator contribution scoring per trade
+- Coach session recording for cross-run learning
+- Regime-specific diagnosis
 """
 
 import json
 import logging
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -15,6 +22,25 @@ import numpy as np
 from .base import BaseAgent
 
 logger = logging.getLogger(__name__)
+
+
+class MistakeType(str, Enum):
+    """Structured mistake taxonomy from 5-player coach model."""
+    WRONG_DIRECTION = "wrong_direction"
+    EARLY_EXIT = "early_exit"
+    LATE_EXIT = "late_exit"
+    OVERSIZED = "oversized"
+    UNDERSIZED = "undersized"
+    BAD_ENTRY_TIMING = "bad_entry_timing"
+    IGNORED_REGIME = "ignored_regime"
+    COUNTER_TREND = "counter_trend"
+    LOW_VOLUME_ENTRY = "low_volume_entry"
+    STOP_TOO_TIGHT = "stop_too_tight"
+    STOP_TOO_WIDE = "stop_too_wide"
+    OVERTRADING = "overtrading"
+    REVENGE_TRADE = "revenge_trade"
+    CHASED_MOVE = "chased_move"
+    IGNORED_INDICATOR = "ignored_indicator"
 
 
 class PostMortemAgent(BaseAgent):
@@ -50,7 +76,15 @@ class PostMortemAgent(BaseAgent):
     # ─────────────────────────────────────────────────────────────────
 
     def analyze_trade(self, trade_id: str) -> Dict:
-        """Deep analysis of a completed trade."""
+        """
+        Deep analysis of a completed trade.
+
+        Enhanced with 5-player coach model capabilities:
+        - Structured mistake classification
+        - Indicator contribution scoring
+        - Coach session recording for cross-run learning
+        - Regime-aware diagnosis
+        """
         trade = self.memory.get_trade(trade_id)
         if not trade:
             return {"error": f"Trade {trade_id} not found"}
@@ -69,10 +103,22 @@ class PostMortemAgent(BaseAgent):
         # Statistical comparison
         stats = self._compare_with_similar(trade, similar)
 
-        # Generate LLM insights if available
+        # Classify mistakes (from 5-player coach model)
+        mistakes = self._classify_mistakes(trade, prediction, errors)
+
+        # Score indicators for this trade
+        indicator_scores = self._score_indicators(trade)
+
+        # Get regime-specific context
+        regime = trade.get("market_regime", "unknown")
+        regime_indicators = self.memory.get_top_indicators_for_regime(regime, limit=5)
+
+        # Generate LLM insights if available (enhanced with diagnosis)
         insights = None
         if self.llm and self.llm.is_available():
-            insights = self._generate_insights(trade, prediction, errors, similar)
+            insights = self._generate_insights(
+                trade, prediction, errors, similar, mistakes, indicator_scores
+            )
 
         analysis = {
             "trade_id": trade_id,
@@ -85,13 +131,41 @@ class PostMortemAgent(BaseAgent):
                 "market_regime": trade.get("market_regime"),
             },
             "errors": errors,
+            "mistakes": mistakes,
+            "indicator_scores": indicator_scores,
             "comparison_stats": stats,
+            "regime_indicators": regime_indicators,
             "insights": insights,
             "outcome": "win" if (trade.get("pnl") or 0) > 0 else "loss",
         }
 
         # Store analysis back to memory as a trade pattern
         self._store_lessons(trade_id, analysis)
+
+        # Record coach session for cross-run learning
+        strategy_id = trade.get("strategy_id", "")
+        if strategy_id and insights:
+            advice = ""
+            if isinstance(insights, dict):
+                changes = insights.get("actionable_changes", [])
+                if changes:
+                    advice = "; ".join(changes[:3])
+            self.memory.record_coach_session(
+                strategy_id=strategy_id,
+                regime=regime,
+                advice=advice or "No actionable changes",
+                patch_json=json.dumps(insights) if insights else "{}",
+                pre_sharpe=0.0,
+                post_sharpe=0.0,
+            )
+
+        # Store indicator scores for cross-run intelligence
+        if indicator_scores:
+            self.memory.store_indicator_scores(trade_id, indicator_scores)
+
+        # Update indicator-regime stats
+        if strategy_id:
+            self.memory.update_indicator_regime_stats(strategy_id)
 
         return analysis
 
@@ -129,10 +203,119 @@ class PostMortemAgent(BaseAgent):
             "percentile": float(sum(1 for p in pnls if p < trade_pnl) / len(pnls)),
         }
 
+    def _classify_mistakes(
+        self, trade: Dict, prediction: Optional[Dict], errors: Dict
+    ) -> List[Dict]:
+        """
+        Classify trade mistakes using the 5-player coach model's taxonomy.
+
+        Returns a list of identified mistakes with severity scores.
+        """
+        mistakes = []
+        pnl = trade.get("pnl", 0) or 0
+        pnl_pct = trade.get("pnl_percent", 0) or 0
+
+        if pnl >= 0:
+            return mistakes  # No mistakes to classify for winning trades
+
+        # Wrong direction
+        if prediction and errors.get("direction_correct") is False:
+            mistakes.append({
+                "type": MistakeType.WRONG_DIRECTION.value,
+                "severity": min(abs(pnl_pct) / 5.0, 1.0),
+                "detail": "Predicted wrong direction",
+            })
+
+        # Ignored regime
+        regime = trade.get("market_regime", "unknown")
+        if regime != "unknown":
+            regime_stats = self.memory.get_indicator_regime_stats(regime)
+            if regime_stats:
+                avg_wr = np.mean([s.get("win_rate", 0.5) for s in regime_stats]) if regime_stats else 0.5
+                if avg_wr < 0.35:
+                    mistakes.append({
+                        "type": MistakeType.IGNORED_REGIME.value,
+                        "severity": 0.7,
+                        "detail": f"Traded in unfavorable regime ({regime}, avg WR={avg_wr:.0%})",
+                    })
+
+        # Stop too tight / too wide
+        max_adverse = trade.get("max_adverse_excursion", 0) or 0
+        if max_adverse != 0 and pnl < 0:
+            sl_distance = trade.get("stop_loss_distance", 0) or 0
+            if sl_distance > 0 and abs(max_adverse) < sl_distance * 0.3:
+                mistakes.append({
+                    "type": MistakeType.STOP_TOO_TIGHT.value,
+                    "severity": 0.5,
+                    "detail": "Stop loss triggered too early; price may have recovered",
+                })
+
+        # Oversized position
+        if trade.get("position_size") and trade.get("portfolio_value"):
+            pos_frac = (
+                trade["position_size"] * (trade.get("entry_price", 1) or 1)
+            ) / trade["portfolio_value"]
+            if pos_frac > 0.08:
+                mistakes.append({
+                    "type": MistakeType.OVERSIZED.value,
+                    "severity": min(pos_frac / 0.15, 1.0),
+                    "detail": f"Position was {pos_frac:.1%} of portfolio (recommended <8%)",
+                })
+
+        return mistakes
+
+    def _score_indicators(self, trade: Dict) -> List[Dict]:
+        """
+        Score indicator contributions for a trade.
+
+        Uses signal data to determine which indicators contributed
+        to the trade decision and whether they were correct.
+        """
+        scores = []
+        signals = trade.get("signals", trade.get("indicator_signals", {}))
+        if not signals or not isinstance(signals, dict):
+            return scores
+
+        pnl = trade.get("pnl", 0) or 0
+        was_correct = pnl > 0
+        action = trade.get("action", "BUY")
+
+        for indicator_name, signal_value in signals.items():
+            if not isinstance(signal_value, (int, float)):
+                continue
+
+            # Determine if indicator agreed with the trade direction
+            if action == "BUY":
+                agreed_with_trade = signal_value > 0
+            else:
+                agreed_with_trade = signal_value < 0
+
+            # Score: positive if indicator and outcome aligned
+            if agreed_with_trade and was_correct:
+                contribution = abs(signal_value) * 0.5  # Correct signal, correct trade
+            elif not agreed_with_trade and not was_correct:
+                contribution = abs(signal_value) * 0.3  # Warned us, we ignored
+            elif agreed_with_trade and not was_correct:
+                contribution = -abs(signal_value) * 0.4  # Bad signal led to loss
+            else:
+                contribution = abs(signal_value) * 0.1  # Disagreed but trade still lost
+
+            scores.append({
+                "indicator": indicator_name,
+                "signal_value": signal_value,
+                "agreed_with_trade": agreed_with_trade,
+                "trade_was_correct": was_correct,
+                "contribution_score": round(contribution, 4),
+            })
+
+        return scores
+
     def _generate_insights(
-        self, trade: Dict, prediction: Optional[Dict], errors: Dict, similar: List[Dict]
+        self, trade: Dict, prediction: Optional[Dict], errors: Dict,
+        similar: List[Dict], mistakes: List[Dict] = None,
+        indicator_scores: List[Dict] = None,
     ) -> Dict:
-        """Use LLM to extract nuanced insights."""
+        """Use LLM to extract nuanced insights with full diagnosis context."""
         similar_summary = []
         for t in similar[:5]:
             similar_summary.append({
@@ -142,7 +325,36 @@ class PostMortemAgent(BaseAgent):
                 "strategy": t.get("strategy_id"),
             })
 
-        prompt = f"""Analyze this completed trade and extract learnings.
+        # Query knowledge base for relevant theory
+        strategy_type = trade.get("strategy_id", "trading")
+        knowledge = self.memory.search_knowledge(
+            f"{strategy_type} strategy analysis risk management",
+            top_k=3,
+        )
+        knowledge_context = [k.get("text", "")[:200] for k in knowledge] if knowledge else []
+
+        # Build memory context
+        strategy_id = trade.get("strategy_id", "")
+        memory_context = self.memory.build_coach_context(strategy_id) if strategy_id else ""
+
+        # Format mistakes
+        mistake_text = ""
+        if mistakes:
+            parts = [f"  {m['type']}: {m['detail']} (severity={m['severity']:.2f})" for m in mistakes]
+            mistake_text = "\n".join(parts)
+
+        # Format indicator scores
+        indicator_text = ""
+        if indicator_scores:
+            sorted_scores = sorted(indicator_scores, key=lambda x: x["contribution_score"], reverse=True)
+            parts = [
+                f"  {s['indicator']}: score={s['contribution_score']:.3f} "
+                f"({'agreed' if s['agreed_with_trade'] else 'disagreed'})"
+                for s in sorted_scores[:5]
+            ]
+            indicator_text = "\n".join(parts)
+
+        prompt = f"""Analyze this completed trade and extract learnings. Use the structured diagnosis data to provide precise, actionable feedback.
 
 TRADE:
 Asset: {trade.get('asset')}
@@ -155,16 +367,31 @@ Regime: {trade.get('market_regime')}
 PREDICTION ERRORS:
 {json.dumps(errors, indent=2, default=str)}
 
+CLASSIFIED MISTAKES:
+{mistake_text or "No mistakes classified (winning trade or insufficient data)"}
+
+INDICATOR CONTRIBUTIONS:
+{indicator_text or "No indicator score data"}
+
+HISTORICAL CONTEXT (from memory):
+{memory_context or "No historical context"}
+
 SIMILAR TRADES:
 {json.dumps(similar_summary, indent=2, default=str)}
+
+RELEVANT THEORY (from knowledge base):
+{json.dumps(knowledge_context, indent=2)}
 
 Respond in JSON:
 {{
     "outcome_summary": "Why the trade worked/failed",
     "primary_factors": ["factor1", "factor2"],
-    "error_attribution": {{"model": 0.5, "execution": 0.2, "randomness": 0.3}},
+    "mistake_analysis": "Analysis of classified mistakes and root causes",
+    "indicator_diagnosis": "Which indicators helped/hurt and recommended weight changes",
+    "error_attribution": {{"model": 0.5, "execution": 0.2, "regime": 0.2, "randomness": 0.1}},
     "lessons_learned": ["lesson1", "lesson2"],
-    "actionable_changes": ["change1", "change2"]
+    "actionable_changes": ["change1", "change2"],
+    "weight_recommendations": {{"indicator_name": 0.05}}
 }}"""
 
         return self.llm.generate_json(prompt)
@@ -202,7 +429,11 @@ Respond in JSON:
     # ─────────────────────────────────────────────────────────────────
 
     def weekly_performance_review(self) -> Dict:
-        """Aggregate learnings from past week's trades."""
+        """
+        Aggregate learnings from past week's trades.
+
+        Enhanced with cross-run intelligence and indicator-regime analysis.
+        """
         cutoff = (datetime.now() - timedelta(days=7)).isoformat()
         trades = self.memory.get_trades(start_date=cutoff)
 
@@ -239,10 +470,42 @@ Respond in JSON:
             "win_rate": sum(1 for p in all_pnls if p > 0) / len(all_pnls),
         }
 
+        # Get cross-run P&L trend
+        pnl_trend = self.memory.get_cross_run_pnl_trend()
+
+        # Get indicator-regime intelligence
+        indicator_stats = self.memory.get_indicator_regime_stats()
+        top_indicators = []
+        if indicator_stats:
+            for s in indicator_stats[:5]:
+                if s.get("total_trades", 0) >= 5:
+                    top_indicators.append({
+                        "indicator": s["indicator"],
+                        "regime": s["regime"],
+                        "win_rate": s.get("win_rate", 0),
+                        "avg_pnl": s.get("avg_pnl", 0),
+                    })
+
+        # Get coach advice effectiveness
+        coach_reviews = {}
+        for sid in by_strategy:
+            effectiveness = self.memory.get_coach_advice_effectiveness(sid)
+            if effectiveness:
+                helped = sum(1 for e in effectiveness if e.get("helped"))
+                coach_reviews[sid] = {
+                    "total_patches": len(effectiveness),
+                    "helped": helped,
+                    "hurt": len(effectiveness) - helped,
+                }
+
         # LLM synthesis
         synthesis = None
         if self.llm and self.llm.is_available():
-            prompt = f"""Weekly trading performance review.
+            trend_str = ""
+            if pnl_trend:
+                trend_str = " -> ".join(f"${r['team_pnl']:,.0f}" for r in pnl_trend[-5:])
+
+            prompt = f"""Weekly trading performance review with cross-run intelligence.
 
 STRATEGY PERFORMANCE:
 {json.dumps(strategy_reviews, indent=2, default=str)}
@@ -250,13 +513,24 @@ STRATEGY PERFORMANCE:
 OVERALL:
 {json.dumps(overall, indent=2, default=str)}
 
+CROSS-RUN P&L TREND:
+{trend_str or "First run"}
+
+TOP INDICATOR-REGIME COMBOS:
+{json.dumps(top_indicators, indent=2, default=str) if top_indicators else "No data"}
+
+COACH ADVICE EFFECTIVENESS:
+{json.dumps(coach_reviews, indent=2, default=str) if coach_reviews else "No coach data"}
+
 Provide strategic recommendations in JSON:
 {{
     "best_strategy": "...",
     "worst_strategy": "...",
     "key_insights": ["insight1", "insight2"],
-    "focus_next_week": ["action1", "action2"],
-    "regime_observations": "..."
+    "indicator_recommendations": {{"keep": [], "remove": [], "increase_weight": []}},
+    "regime_observations": "...",
+    "coach_assessment": "Are the learning patches helping or hurting?",
+    "focus_next_week": ["action1", "action2"]
 }}"""
             synthesis = self.llm.generate_json(prompt)
 
@@ -264,6 +538,9 @@ Provide strategic recommendations in JSON:
             "period": f"Last 7 days (from {cutoff[:10]})",
             "overall": overall,
             "strategy_reviews": strategy_reviews,
+            "pnl_trend": pnl_trend,
+            "top_indicators": top_indicators,
+            "coach_effectiveness": coach_reviews,
             "synthesis": synthesis,
         }
 

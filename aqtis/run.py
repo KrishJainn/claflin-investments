@@ -20,6 +20,7 @@ from aqtis.config.settings import load_config
 from aqtis.memory.memory_layer import MemoryLayer
 from aqtis.llm.base import MockLLMProvider
 from aqtis.orchestrator.orchestrator import MultiAgentOrchestrator
+from aqtis.backtest.simulation_runner import SimulationRunner
 
 
 def _get_llm(config):
@@ -122,6 +123,63 @@ def run_daily(memory, orchestrator):
     return result
 
 
+def run_backtest(memory, orchestrator, config, days=60, symbols=None, llm_budget=80):
+    """Run a 60-day backtest simulation."""
+    print(f"\n--- AQTIS Backtest Simulation ---\n")
+
+    runner = SimulationRunner(
+        memory=memory,
+        orchestrator=orchestrator,
+        config=config,
+        llm_budget=llm_budget,
+    )
+
+    sym_list = symbols or config.market_data.symbols
+    print(f"Symbols: {len(sym_list)}")
+    print(f"Days: {days}")
+    print(f"LLM Budget: {llm_budget} calls")
+    print(f"Initial Capital: {config.execution.initial_capital:,.0f}")
+    print()
+
+    result = runner.run(symbols=sym_list, days=days)
+
+    if result.get("error"):
+        print(f"Error: {result['error']}")
+        return result
+
+    cap = result.get("capital", {})
+    metrics = result.get("metrics", {})
+    llm_usage = result.get("llm_usage", {})
+
+    print(f"\n{'='*50}")
+    print(f"RUN #{result.get('run_number', '?')} COMPLETE")
+    print(f"{'='*50}")
+    print(f"Period: {result.get('date_range', {}).get('start')} to {result.get('date_range', {}).get('end')}")
+    print(f"Symbols: {len(result.get('symbols', []))}")
+    print(f"Days Simulated: {result.get('days_simulated', 0)}")
+    print()
+    print(f"P&L: {cap.get('pnl', 0):+,.0f} ({cap.get('return_pct', 0):+.2f}%)")
+    print(f"Final Capital: {cap.get('final', 0):,.0f}")
+    print()
+    print(f"Total Trades: {metrics.get('total_trades', 0)}")
+    print(f"Win Rate: {metrics.get('win_rate', 0):.1%}")
+    print(f"Sharpe Ratio: {metrics.get('sharpe_ratio', 0):.2f}")
+    print(f"Max Drawdown: {metrics.get('max_drawdown', 0):.2%}")
+    print(f"Profit Factor: {metrics.get('profit_factor', 0):.2f}")
+    print(f"Avg Win: {metrics.get('avg_win', 0):,.0f} | Avg Loss: {metrics.get('avg_loss', 0):,.0f}")
+    print()
+    print(f"LLM Calls: {llm_usage.get('calls_used', 0)}/{llm_usage.get('budget', 0)}")
+
+    regime = metrics.get("regime_breakdown", {})
+    if regime:
+        print(f"\nRegime Breakdown:")
+        for r, stats in regime.items():
+            wr = stats["wins"] / stats["trades"] * 100 if stats["trades"] > 0 else 0
+            print(f"  {r}: {stats['trades']} trades, WR={wr:.0f}%, P&L={stats['pnl']:+,.0f}")
+
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="AQTIS - Adaptive Quantitative Trading Intelligence System")
     parser.add_argument("--config", default="aqtis_config.yaml", help="Config file path")
@@ -129,6 +187,10 @@ def main():
     parser.add_argument("--daily", action="store_true", help="Run daily routine")
     parser.add_argument("--dashboard", action="store_true", help="Launch Streamlit dashboard")
     parser.add_argument("--health", action="store_true", help="Check system health")
+    parser.add_argument("--backtest", action="store_true", help="Run 60-day backtest simulation")
+    parser.add_argument("--days", type=int, default=60, help="Number of backtest days (default: 60)")
+    parser.add_argument("--llm-budget", type=int, default=80, help="Max LLM calls for backtest (default: 80)")
+    parser.add_argument("--symbols", nargs="+", help="Override symbols for backtest")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -162,7 +224,14 @@ def main():
             print("\nConfig: All checks passed")
         return
 
-    if args.analyze:
+    if args.backtest:
+        run_backtest(
+            memory, orchestrator, config,
+            days=args.days,
+            symbols=args.symbols,
+            llm_budget=args.llm_budget,
+        )
+    elif args.analyze:
         run_analysis(args.analyze, memory, orchestrator)
     elif args.daily:
         run_daily(memory, orchestrator)

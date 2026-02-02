@@ -56,6 +56,11 @@ class StrategyGeneratorAgent(BaseAgent):
     def analyze_signal(self, market_signal: Dict) -> Dict:
         """
         Analyze a market signal to determine if a trade should be taken.
+
+        Enhanced with 5-player coach model intelligence:
+        - Regime-specific indicator effectiveness from historical data
+        - Memory context from cross-run learning
+        - Knowledge base lookup for strategy-specific rules
         """
         # Get current market regime
         regime = self.memory.get_market_regime()
@@ -67,7 +72,10 @@ class StrategyGeneratorAgent(BaseAgent):
         if not strategies:
             return {"should_trade": False, "reason": "No active strategies"}
 
-        # Find best strategy for current regime
+        # Get regime-specific indicator intelligence from memory
+        top_indicators = self.memory.get_top_indicators_for_regime(regime_name, limit=5)
+
+        # Find best strategy for current regime (enhanced scoring)
         best_strategy = None
         best_score = -float("inf")
 
@@ -76,7 +84,17 @@ class StrategyGeneratorAgent(BaseAgent):
             regime_score = regime_perf.get(regime_name, 0)
             overall_score = strategy.get("sharpe_ratio", 0) or 0
 
-            score = regime_score * 0.6 + overall_score * 0.4
+            # Boost score if strategy uses indicators that perform well in this regime
+            indicator_boost = 0.0
+            if top_indicators:
+                strategy_indicators = set(
+                    (strategy.get("parameters") or {}).get("indicators", [])
+                )
+                for ind in top_indicators:
+                    if ind.get("indicator") in strategy_indicators:
+                        indicator_boost += ind.get("contribution_score", 0) * 0.1
+
+            score = regime_score * 0.5 + overall_score * 0.3 + indicator_boost * 0.2
             if score > best_score:
                 best_score = score
                 best_strategy = strategy
@@ -86,11 +104,14 @@ class StrategyGeneratorAgent(BaseAgent):
 
         # Use LLM for deeper analysis if available
         if self.llm and self.llm.is_available():
-            llm_analysis = self._llm_analyze_signal(market_signal, best_strategy, regime_name)
+            llm_analysis = self._llm_analyze_signal(
+                market_signal, best_strategy, regime_name, top_indicators
+            )
             return {
                 "should_trade": llm_analysis.get("should_trade", True),
                 "strategy": best_strategy,
                 "regime": regime_name,
+                "top_indicators": top_indicators,
                 "analysis": llm_analysis,
                 "reason": llm_analysis.get("reasoning", "LLM approved"),
             }
@@ -99,12 +120,15 @@ class StrategyGeneratorAgent(BaseAgent):
             "should_trade": best_score > 0,
             "strategy": best_strategy,
             "regime": regime_name,
+            "top_indicators": top_indicators,
             "score": best_score,
             "reason": "Rule-based analysis",
         }
 
-    def _llm_analyze_signal(self, signal: Dict, strategy: Dict, regime: str) -> Dict:
-        """Use LLM to analyze trading signal."""
+    def _llm_analyze_signal(
+        self, signal: Dict, strategy: Dict, regime: str, top_indicators: List = None
+    ) -> Dict:
+        """Use LLM to analyze trading signal with full memory context."""
         # Get similar historical trades for context
         similar = self.memory.get_similar_trades(signal, top_k=10)
         similar_summary = []
@@ -114,6 +138,27 @@ class StrategyGeneratorAgent(BaseAgent):
                 "pnl_percent": t.get("pnl_percent"),
                 "regime": t.get("market_regime"),
             })
+
+        # Build memory context from cross-run learning
+        strategy_id = strategy.get("strategy_id", "")
+        memory_context = self.memory.build_pre_trade_context(signal)
+
+        # Get knowledge base context for this regime + strategy type
+        knowledge = self.memory.search_knowledge(
+            f"{regime} regime {strategy.get('strategy_type', 'trading')} strategy rules",
+            top_k=3,
+        )
+        knowledge_snippets = [k.get("text", "")[:200] for k in knowledge] if knowledge else []
+
+        # Format indicator intelligence
+        indicator_info = ""
+        if top_indicators:
+            ind_parts = [
+                f"  {i.get('indicator')}: WR={i.get('win_rate', 0):.0%}, "
+                f"score={i.get('contribution_score', 0):.2f}"
+                for i in top_indicators
+            ]
+            indicator_info = "\n".join(ind_parts)
 
         prompt = f"""You are a quantitative strategy analyst. Analyze this trading signal and decide whether to trade.
 
@@ -127,15 +172,25 @@ Sharpe: {strategy.get('sharpe_ratio')}
 
 MARKET REGIME: {regime}
 
+BEST INDICATORS FOR THIS REGIME:
+{indicator_info or "No indicator-regime data available"}
+
+MEMORY CONTEXT (from historical runs):
+{memory_context or "No historical context"}
+
 SIMILAR HISTORICAL TRADES:
 {json.dumps(similar_summary, indent=2, default=str)}
+
+KNOWLEDGE BASE:
+{json.dumps(knowledge_snippets, indent=2) if knowledge_snippets else "No relevant knowledge"}
 
 Respond in JSON format:
 {{
     "should_trade": true/false,
     "confidence": 0.0 to 1.0,
-    "reasoning": "Brief explanation",
-    "suggested_adjustments": "Any parameter tweaks"
+    "reasoning": "Brief explanation referencing regime, indicators, and history",
+    "suggested_adjustments": "Any parameter tweaks",
+    "regime_alignment": "How well strategy aligns with current regime"
 }}"""
 
         return self.llm.generate_json(prompt)
@@ -145,7 +200,15 @@ Respond in JSON format:
     # ─────────────────────────────────────────────────────────────────
 
     def propose_strategy_improvement(self, strategy_id: str) -> Dict:
-        """Analyze strategy and propose improvements."""
+        """
+        Analyze strategy and propose improvements.
+
+        Enhanced with 5-player coach model intelligence:
+        - Full optimization context from memory (cross-run learning)
+        - Indicator-regime effectiveness data
+        - Coach advice history and effectiveness
+        - Best historical strategy snapshots
+        """
         strategy = self.memory.get_strategy(strategy_id)
         if not strategy:
             return {"error": f"Strategy {strategy_id} not found"}
@@ -163,16 +226,47 @@ Respond in JSON format:
             top_k=3,
         )
 
+        # Query knowledge base for strategy-type-specific concepts
+        knowledge = self.memory.search_knowledge(
+            f"{strategy.get('strategy_type', 'trading')} strategy implementation best practices",
+            top_k=3,
+        )
+
+        # Get full optimization context from cross-run memory
+        optimization_context = self.memory.build_full_optimization_context(strategy_id)
+
+        # Get best historical strategy snapshot
+        best_snapshot = self.memory.get_best_strategy_snapshot(strategy_id)
+
+        # Get indicator-regime effectiveness
+        indicator_stats = self.memory.get_indicator_regime_stats()
+        top_ind_summary = []
+        if indicator_stats:
+            for s in indicator_stats[:5]:
+                if s.get("total_trades", 0) >= 10:
+                    top_ind_summary.append(
+                        f"{s['indicator']} in {s['regime']}: "
+                        f"WR={s.get('win_rate', 0):.0%}, avg P&L=${s.get('avg_pnl', 0):.0f}"
+                    )
+
+        # Get coach advice effectiveness
+        coach_effectiveness = self.memory.get_coach_advice_effectiveness(strategy_id)
+
         if not self.llm or not self.llm.is_available():
             return {
                 "strategy_id": strategy_id,
                 "performance": performance,
                 "failed_trades_count": len(failed_trades),
                 "research_found": len(research),
+                "knowledge_found": len(knowledge),
+                "best_snapshot": best_snapshot,
+                "indicator_intelligence": top_ind_summary,
                 "improvements": "LLM not available for detailed analysis",
             }
 
-        # Use LLM to generate improvement proposal
+        knowledge_context = [k.get("text", "")[:200] for k in knowledge] if knowledge else []
+
+        # Use LLM to generate improvement proposal with full context
         prompt = f"""You are a quantitative strategy designer. Analyze this strategy and propose improvements.
 
 STRATEGY: {strategy.get('strategy_name')}
@@ -185,18 +279,35 @@ Win Rate: {performance.get('win_rate', 0):.2%}
 Sharpe Ratio: {performance.get('sharpe_ratio', 0):.2f}
 Max Drawdown: {performance.get('max_drawdown', 0):.2%}
 
+CROSS-RUN MEMORY (learned from all previous simulation runs):
+{optimization_context}
+
+BEST HISTORICAL CONFIG:
+{json.dumps(best_snapshot, indent=2, default=str) if best_snapshot else "No historical snapshots"}
+
+INDICATOR-REGIME INTELLIGENCE (which indicators work in which regimes):
+{chr(10).join(top_ind_summary) if top_ind_summary else "No indicator data yet"}
+
+COACH ADVICE HISTORY:
+{json.dumps(coach_effectiveness[-3:], indent=2, default=str) if coach_effectiveness else "No coach history"}
+
 RECENT FAILED TRADES ({len(failed_trades)}):
 Common regimes: {self._count_regimes(failed_trades)}
 
 RELEVANT RESEARCH:
 {json.dumps([r.get('metadata', {}).get('title', r.get('text', '')[:100]) for r in research], indent=2)}
 
+KNOWLEDGE BASE (best practices for this strategy type):
+{json.dumps(knowledge_context, indent=2)}
+
 Propose specific improvements in JSON format:
 {{
-    "analysis": "What's working and what isn't",
+    "analysis": "What's working and what isn't, considering cross-run history",
     "parameter_changes": {{"param_name": "new_value"}},
+    "indicator_changes": {{"add": [], "remove": [], "reweight": {{}}}},
+    "regime_specific_rules": {{"regime_name": "rule"}},
     "new_rules": ["Rule 1", "Rule 2"],
-    "expected_improvement": "Brief prediction"
+    "expected_improvement": "Brief prediction with rationale from historical data"
 }}"""
 
         return self.llm.generate_json(prompt)
@@ -262,6 +373,10 @@ Focus on parameters most likely to improve performance.
         research = self.memory.search_research("quantitative trading strategies", top_k=5)
         regime = self.memory.get_market_regime()
 
+        # Query knowledge base for strategy concepts
+        knowledge = self.memory.search_knowledge("trading strategies momentum mean reversion", top_k=5)
+        knowledge_context = [k.get("text", "")[:200] for k in knowledge] if knowledge else []
+
         prompt = f"""You are a quantitative strategy designer. Propose a new trading strategy.
 
 EXISTING STRATEGIES:
@@ -272,6 +387,9 @@ CURRENT MARKET REGIME:
 
 RESEARCH INSIGHTS:
 {json.dumps([r.get('text', '')[:200] for r in research], indent=2)}
+
+KNOWLEDGE BASE CONTEXT:
+{json.dumps(knowledge_context, indent=2)}
 
 CONSTRAINTS:
 {json.dumps(constraints or {}, indent=2)}
