@@ -65,29 +65,29 @@ PLAYER_LABELS = {
     "PLAYER_5": "Momentum",
 }
 
-# Default 5-player configurations
+# Default 5-player configurations (using available indicators)
 PLAYERS_CONFIG = {
     "PLAYER_1": {
         "label": "Aggressive",
         "weights": {
             "RSI_7": 0.90, "STOCH_5_3": 0.85, "TSI_13_25": 0.75,
             "CMO_14": 0.70, "WILLR_14": 0.65, "OBV": 0.60,
-            "MFI_14": 0.55, "ADX_14": 0.50, "EMA_9": 0.45,
+            "MFI_14": 0.55, "ADX_14": 0.50, "DEMA_20": 0.45,
             "NATR_14": 0.40,
         },
-        "entry_threshold": 0.30,
+        "entry_threshold": 0.25,
         "exit_threshold": -0.10,
         "min_hold_bars": 4,
     },
     "PLAYER_2": {
         "label": "Conservative",
         "weights": {
-            "ADX_14": 0.90, "SUPERTREND_7_3": 0.85, "EMA_20": 0.80,
+            "ADX_14": 0.90, "SUPERTREND_7_3": 0.85, "EMA_50": 0.80,
             "AROON_14": 0.70, "CMF_20": 0.65, "RSI_14": 0.60,
-            "BBANDS_20_2": 0.55, "OBV": 0.50, "VWMA_10": 0.45,
+            "BBANDS_20_2": 0.55, "OBV": 0.50, "VWMA_20": 0.45,
             "HMA_9": 0.40, "ATR_14": 0.35,
         },
-        "entry_threshold": 0.35,
+        "entry_threshold": 0.30,
         "exit_threshold": -0.15,
         "min_hold_bars": 5,
     },
@@ -96,22 +96,22 @@ PLAYERS_CONFIG = {
         "weights": {
             "RSI_14": 0.85, "BBANDS_20_2": 0.80, "STOCH_14_3": 0.75,
             "CMF_20": 0.65, "ZSCORE_20": 0.60, "MFI_20": 0.55,
-            "EMA_9": 0.50, "ADX_14": 0.45, "ATR_14": 0.40,
+            "DEMA_20": 0.50, "ADX_14": 0.45, "ATR_14": 0.40,
             "TEMA_20": 0.35,
         },
-        "entry_threshold": 0.30,
+        "entry_threshold": 0.25,
         "exit_threshold": -0.10,
         "min_hold_bars": 4,
     },
     "PLAYER_4": {
         "label": "VolBreakout",
         "weights": {
-            "NATR_14": 0.95, "KELTNER_20_1.5": 0.90, "ADX_14": 0.85,
-            "BBANDS_20_2": 0.75, "ATR_14": 0.70, "CCI_20": 0.60,
+            "NATR_14": 0.95, "KC_20_2": 0.90, "ADX_14": 0.85,
+            "BBANDS_20_2": 0.75, "ATR_14": 0.70, "CCI_14": 0.60,
             "RSI_7": 0.55, "OBV": 0.50, "CMF_20": 0.45,
             "WILLR_14": 0.40,
         },
-        "entry_threshold": 0.25,
+        "entry_threshold": 0.22,
         "exit_threshold": -0.08,
         "min_hold_bars": 3,
     },
@@ -119,11 +119,11 @@ PLAYERS_CONFIG = {
         "label": "Momentum",
         "weights": {
             "RSI_7": 0.95, "TSI_13_25": 0.90, "MACD_12_26_9": 0.85,
-            "CMO_14": 0.80, "STOCH_5_3": 0.75, "TRIX_15": 0.65,
-            "PPO_12_26_9": 0.60, "ROC_10": 0.55, "MOM_10": 0.50,
-            "EMA_9": 0.45,
+            "CMO_14": 0.80, "STOCH_5_3": 0.75, "COPPOCK": 0.65,
+            "ROC_20": 0.60, "ROC_10": 0.55, "MOM_10": 0.50,
+            "DEMA_20": 0.45,
         },
-        "entry_threshold": 0.28,
+        "entry_threshold": 0.23,
         "exit_threshold": -0.10,
         "min_hold_bars": 4,
     },
@@ -163,31 +163,39 @@ def init_session_state():
 
 def _fetch_symbol_data(symbol: str, interval: str = "5m", days: int = 60) -> Optional[pd.DataFrame]:
     """Fetch OHLCV data for a symbol."""
+    df = None
+
     try:
         from data.local_cache import get_cache
         cache = get_cache()
         df = cache.get_data(symbol, interval=interval)
-        if df is not None and not df.empty:
-            return df
     except Exception:
         pass
 
-    try:
-        import yfinance as yf
-        end = datetime.now()
-        start = end - timedelta(days=days + 10)
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(
-            start=start.strftime("%Y-%m-%d"),
-            end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
-            interval=interval,
-        )
-        if df is not None and not df.empty:
-            col_map = {c: c.lower() for c in df.columns}
+    if df is None or df.empty:
+        try:
+            import yfinance as yf
+            end = datetime.now()
+            start = end - timedelta(days=days + 10)
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(
+                start=start.strftime("%Y-%m-%d"),
+                end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
+                interval=interval,
+            )
+        except Exception:
+            pass
+
+    if df is not None and not df.empty:
+        # Normalize column names to lowercase
+        col_map = {}
+        for c in df.columns:
+            cl = c.lower()
+            if cl in ['open', 'high', 'low', 'close', 'volume']:
+                col_map[c] = cl
+        if col_map:
             df = df.rename(columns=col_map)
-            return df
-    except Exception:
-        pass
+        return df
 
     return None
 
@@ -314,10 +322,17 @@ def run_5player_backtest(
         except Exception:
             return "unknown"
 
+    # Debug info
+    _debug = False  # Set to True for verbose output
+    _trades_entered = 0
+
     # Day simulation loop
     for day in range(total_days):
         start_bar = day * bars_per_day
         end_bar = start_bar + bars_per_day
+
+        if _debug and day < 3:
+            print(f"Day {day}: bars {start_bar}-{end_bar}")
 
         # Each player trades independently
         for pid, state in players.items():
@@ -427,12 +442,18 @@ def run_5player_backtest(
                             direction = None
 
                         if direction:
-                            risk = state.equity * 0.02
-                            stop_dist = atr * 2
-                            qty = max(1, int(risk / stop_dist)) if stop_dist > 0 else 1
+                            # Position sizing: max 20% of equity per position
+                            max_position_value = state.equity * 0.20
+                            qty = max(1, int(max_position_value / last_price))
                             cost = qty * last_price
 
-                            if cost < state.equity * 0.25:
+                            # Calculate stop based on ATR
+                            stop_dist = atr * 2 if atr > 0 else last_price * 0.02
+
+                            if _debug and day < 3:
+                                print(f"  {pid} {sym}: {direction} signal SI={last_si:.3f}, qty={qty}, cost={cost:.0f}")
+
+                            if cost <= state.equity * 0.25:
                                 if direction == "LONG":
                                     sl = last_price - stop_dist
                                     tp = last_price + atr * 3
@@ -448,10 +469,18 @@ def run_5player_backtest(
                                     "take_profit": tp,
                                 }
                                 state.bars_held[sym] = 0
+                                _trades_entered += 1
+
+                                if _debug:
+                                    print(f"    -> ENTERED {direction} {qty} shares @ {last_price:.2f}")
 
                     state.prev_si[sym] = last_si
 
-                except Exception:
+                except Exception as e:
+                    # Log errors for debugging
+                    import traceback
+                    print(f"Error in {pid} {sym}: {e}")
+                    traceback.print_exc()
                     continue
 
             state.daily_pnl.append(day_pnl)
