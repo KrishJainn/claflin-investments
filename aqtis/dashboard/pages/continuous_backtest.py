@@ -145,6 +145,37 @@ class PlayerState:
     coach_history: List = field(default_factory=list)
 
 
+EVOLVED_CONFIGS_PATH = Path(__file__).parent.parent.parent.parent / "evolved_player_configs.json"
+
+
+def save_evolved_configs(configs: Dict):
+    """Save evolved configs to file for persistence across sessions."""
+    try:
+        # Convert to serializable format
+        save_data = {
+            "saved_at": datetime.now().isoformat(),
+            "configs": configs,
+        }
+        with open(EVOLVED_CONFIGS_PATH, "w") as f:
+            json.dump(save_data, f, indent=2)
+        print(f"[Config] Saved evolved configs to {EVOLVED_CONFIGS_PATH}")
+    except Exception as e:
+        print(f"[Config] Failed to save configs: {e}")
+
+
+def load_evolved_configs() -> Optional[Dict]:
+    """Load evolved configs from file if available."""
+    try:
+        if EVOLVED_CONFIGS_PATH.exists():
+            with open(EVOLVED_CONFIGS_PATH, "r") as f:
+                data = json.load(f)
+            print(f"[Config] Loaded evolved configs from {data.get('saved_at', 'unknown')}")
+            return data.get("configs")
+    except Exception as e:
+        print(f"[Config] Failed to load configs: {e}")
+    return None
+
+
 def init_session_state():
     """Initialize session state variables."""
     if "continuous_running" not in st.session_state:
@@ -158,7 +189,16 @@ def init_session_state():
     if "auto_refresh" not in st.session_state:
         st.session_state.auto_refresh = False
     if "player_configs" not in st.session_state:
-        st.session_state.player_configs = deepcopy(PLAYERS_CONFIG)
+        # Try to load evolved configs from file, otherwise use defaults
+        loaded = load_evolved_configs()
+        if loaded:
+            st.session_state.player_configs = loaded
+            st.session_state.configs_evolved = True
+        else:
+            st.session_state.player_configs = deepcopy(PLAYERS_CONFIG)
+            st.session_state.configs_evolved = False
+    if "configs_evolved" not in st.session_state:
+        st.session_state.configs_evolved = False
 
 
 def _fetch_symbol_data(symbol: str, interval: str = "5m", days: int = 60) -> Optional[pd.DataFrame]:
@@ -689,6 +729,10 @@ def render_continuous_backtest(memory=None):
     # Reset configs button
     if st.sidebar.button("Reset All Player Configs"):
         st.session_state.player_configs = deepcopy(PLAYERS_CONFIG)
+        st.session_state.configs_evolved = False
+        # Delete saved file
+        if EVOLVED_CONFIGS_PATH.exists():
+            EVOLVED_CONFIGS_PATH.unlink()
         st.success("Player configs reset to defaults")
 
     # Control buttons
@@ -708,12 +752,17 @@ def render_continuous_backtest(memory=None):
 
                 if "error" not in result:
                     result["run_number"] = st.session_state.run_count + 1
+                    # Store evolved configs in result for tracking
+                    result["evolved_configs"] = new_configs
                     st.session_state.run_count += 1
                     st.session_state.continuous_results.append(result)
                     st.session_state.last_run_time = datetime.now()
 
                     if persist_learning:
                         st.session_state.player_configs = new_configs
+                        st.session_state.configs_evolved = True
+                        # Save to file for persistence
+                        save_evolved_configs(new_configs)
 
                     st.success(f"Run #{result['run_number']} complete! Team P&L: ₹{result['team_total_pnl']:+,.0f}")
                 else:
@@ -759,12 +808,15 @@ def render_continuous_backtest(memory=None):
 
                 if "error" not in result:
                     result["run_number"] = st.session_state.run_count + 1
+                    result["evolved_configs"] = new_configs
                     st.session_state.run_count += 1
                     st.session_state.continuous_results.append(result)
                     st.session_state.last_run_time = datetime.now()
 
                     if persist_learning:
                         st.session_state.player_configs = new_configs
+                        st.session_state.configs_evolved = True
+                        save_evolved_configs(new_configs)
 
         time.sleep(1)
         st.rerun()
@@ -776,17 +828,50 @@ def render_continuous_backtest(memory=None):
     if not results:
         st.info("No backtest results yet. Click 'Run Single Backtest' or enable 'Auto-Run' to start.")
 
-        # Show current player configs
-        st.subheader("Current Player Configurations")
+        # Show current player configs with evolution status
+        evolved = st.session_state.get("configs_evolved", False)
+        st.subheader(f"Current Player Configurations {'🧬 (Evolved)' if evolved else '📋 (Default)'}")
+
+        if evolved:
+            st.success("Using evolved configurations from previous learning. These will continue to evolve with each run.")
+
         for pid, config in st.session_state.player_configs.items():
-            with st.expander(f"{PLAYER_LABELS.get(pid, pid)}: Entry {config.get('entry_threshold', 0.30):.2f}, {len(config.get('weights', {}))} indicators"):
-                st.json({
-                    "entry_threshold": config.get("entry_threshold"),
-                    "exit_threshold": config.get("exit_threshold"),
-                    "min_hold_bars": config.get("min_hold_bars"),
-                    "num_indicators": len(config.get("weights", {})),
-                    "top_indicators": list(config.get("weights", {}).keys())[:5],
-                })
+            original = PLAYERS_CONFIG.get(pid, {})
+            orig_inds = len(original.get("weights", {}))
+            curr_inds = len(config.get("weights", {}))
+            orig_thresh = original.get("entry_threshold", 0.30)
+            curr_thresh = config.get("entry_threshold", 0.30)
+
+            # Show evolution delta
+            ind_delta = curr_inds - orig_inds
+            thresh_delta = curr_thresh - orig_thresh
+
+            label = PLAYER_LABELS.get(pid, pid)
+            delta_str = ""
+            if evolved and (ind_delta != 0 or abs(thresh_delta) > 0.001):
+                delta_str = f" | Δ: {ind_delta:+d} inds, {thresh_delta:+.2f} thresh"
+
+            with st.expander(f"{label}: Entry {curr_thresh:.2f}, {curr_inds} indicators{delta_str}"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Current Config:**")
+                    st.json({
+                        "entry_threshold": config.get("entry_threshold"),
+                        "exit_threshold": config.get("exit_threshold"),
+                        "min_hold_bars": config.get("min_hold_bars"),
+                        "num_indicators": curr_inds,
+                        "indicators": list(config.get("weights", {}).keys()),
+                    })
+                with col2:
+                    if evolved:
+                        st.markdown("**Original (Default):**")
+                        st.json({
+                            "entry_threshold": original.get("entry_threshold"),
+                            "exit_threshold": original.get("exit_threshold"),
+                            "min_hold_bars": original.get("min_hold_bars"),
+                            "num_indicators": orig_inds,
+                            "indicators": list(original.get("weights", {}).keys()),
+                        })
         return
 
     # Team summary
@@ -947,6 +1032,67 @@ def render_continuous_backtest(memory=None):
                 st.divider()
         else:
             st.info("No coach optimization sessions recorded yet. Run more days or decrease coach interval.")
+
+    # Strategy Evolution Tracker
+    st.subheader("🧬 Strategy Evolution Tracker")
+
+    # Show how each player's config has evolved from original
+    evolved = st.session_state.get("configs_evolved", False)
+    if evolved:
+        evolution_data = []
+        for pid in ["PLAYER_1", "PLAYER_2", "PLAYER_3", "PLAYER_4", "PLAYER_5"]:
+            original = PLAYERS_CONFIG.get(pid, {})
+            current = st.session_state.player_configs.get(pid, {})
+
+            orig_inds = set(original.get("weights", {}).keys())
+            curr_inds = set(current.get("weights", {}).keys())
+
+            added = curr_inds - orig_inds
+            removed = orig_inds - curr_inds
+            kept = orig_inds & curr_inds
+
+            # Calculate weight changes for kept indicators
+            weight_changes = 0
+            for ind in kept:
+                orig_w = original.get("weights", {}).get(ind, 0)
+                curr_w = current.get("weights", {}).get(ind, 0)
+                if abs(curr_w - orig_w) > 0.01:
+                    weight_changes += 1
+
+            evolution_data.append({
+                "Player": PLAYER_LABELS.get(pid, pid),
+                "Original Inds": len(orig_inds),
+                "Current Inds": len(curr_inds),
+                "Added": len(added),
+                "Removed": len(removed),
+                "Weights Changed": weight_changes,
+                "Entry Δ": f"{current.get('entry_threshold', 0.30) - original.get('entry_threshold', 0.30):+.2f}",
+                "Current Entry": f"{current.get('entry_threshold', 0.30):.2f}",
+            })
+
+        st.dataframe(pd.DataFrame(evolution_data), use_container_width=True)
+
+        # Detailed view per player
+        with st.expander("View Detailed Evolution (Indicators Added/Removed)"):
+            for pid in ["PLAYER_1", "PLAYER_2", "PLAYER_3", "PLAYER_4", "PLAYER_5"]:
+                original = PLAYERS_CONFIG.get(pid, {})
+                current = st.session_state.player_configs.get(pid, {})
+
+                orig_inds = set(original.get("weights", {}).keys())
+                curr_inds = set(current.get("weights", {}).keys())
+
+                added = curr_inds - orig_inds
+                removed = orig_inds - curr_inds
+
+                st.markdown(f"**{PLAYER_LABELS.get(pid, pid)}:**")
+                if added:
+                    st.markdown(f"  ➕ Added: {', '.join(sorted(added))}")
+                if removed:
+                    st.markdown(f"  ➖ Removed: {', '.join(sorted(removed))}")
+                if not added and not removed:
+                    st.markdown(f"  ∅ No indicator changes (only weight adjustments)")
+    else:
+        st.info("Configs haven't evolved yet. Run backtests to see how the AI coach optimizes each player's strategy.")
 
     # Run history table
     st.subheader("Run History")
