@@ -28,36 +28,38 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# All available indicators by category
+# All available indicators by category (verified against IndicatorUniverse)
 INDICATOR_CATEGORIES = {
     "momentum": [
-        "RSI_7", "RSI_14", "RSI_21", "STOCH_5_3", "STOCH_14_3",
-        "MACD_12_26_9", "MACD_8_17_9", "CCI_14", "CCI_20",
-        "CMO_14", "MOM_10", "MOM_20", "ROC_10", "ROC_20",
-        "WILLR_14", "WILLR_21", "TSI_13_25", "UO", "AO",
-        "PPO_12_26_9", "TRIX_15", "KST", "COPPOCK",
+        "RSI_7", "RSI_14", "RSI_21", "STOCH_5_3", "STOCH_14_3", "STOCH_21_5",
+        "MACD_12_26_9", "MACD_8_17_9", "MACD_5_35_5", "CCI_14", "CCI_20",
+        "CMO_14", "CMO_20", "MOM_10", "MOM_20", "ROC_10", "ROC_20",
+        "WILLR_14", "WILLR_28", "TSI_13_25", "UO_7_14_28", "AO_5_34",
+        "KST", "COPPOCK",
     ],
     "trend": [
-        "ADX_14", "ADX_21", "AROON_14", "AROON_25",
-        "SUPERTREND_7_3", "SUPERTREND_10_2", "PSAR",
-        "DPO_20", "VORTEX_14",
+        "ADX_14", "ADX_20", "AROON_14", "AROON_25",
+        "SUPERTREND_7_3", "SUPERTREND_10_2", "SUPERTREND_20_3", "PSAR",
+        "VORTEX_14", "LINREG_SLOPE_14", "LINREG_SLOPE_25",
     ],
     "volatility": [
-        "ATR_14", "ATR_21", "NATR_14", "NATR_21",
-        "BBANDS_20_2", "KELTNER_20_1.5", "KELTNER_20_2",
-        "DONCHIAN_20", "TRUERANGE",
+        "ATR_14", "ATR_20", "NATR_14", "NATR_20",
+        "BBANDS_20_2", "BBANDS_20_2.5", "BBANDS_10_1.5",
+        "KC_20_1.5", "KC_20_2",
+        "DONCHIAN_20", "DONCHIAN_50", "TRUERANGE", "MASS_INDEX",
     ],
     "volume": [
-        "OBV", "AD", "CMF_20", "CMF_21", "MFI_14", "MFI_20",
-        "EFI_13", "NVI", "PVI", "VWAP",
+        "OBV", "AD", "ADOSC_3_10", "CMF_20", "CMF_21", "MFI_14", "MFI_20",
+        "EFI_13", "EFI_20", "NVI", "PVI",
     ],
     "overlap": [
-        "EMA_9", "EMA_20", "EMA_50", "SMA_10", "SMA_20", "SMA_50",
-        "WMA_10", "WMA_20", "DEMA_20", "TEMA_20",
+        "EMA_10", "EMA_20", "EMA_50", "EMA_100", "EMA_200",
+        "SMA_10", "SMA_20", "SMA_50", "SMA_100", "SMA_200",
+        "WMA_10", "WMA_20", "DEMA_10", "DEMA_20", "TEMA_10", "TEMA_20",
         "HMA_9", "HMA_16", "VWMA_10", "VWMA_20",
-        "KAMA_10", "T3_5", "T3_10",
+        "KAMA_10", "KAMA_20", "T3_5", "T3_10", "ICHIMOKU",
     ],
-    "other": ["ZSCORE_20", "ZSCORE_50"],
+    "other": ["ZSCORE_20", "ZSCORE_50", "PIVOTS"],
 }
 
 # Player style profiles for targeted optimization

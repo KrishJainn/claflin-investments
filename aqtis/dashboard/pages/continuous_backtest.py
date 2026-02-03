@@ -493,9 +493,28 @@ def run_5player_backtest(
             if use_ai_coach:
                 try:
                     from aqtis.coaches.ai_coach import AICoach
-                    coach = AICoach(use_llm=False)
+                    from aqtis.llm.gemini_provider import GeminiProvider
+                    import dotenv
 
-                    session = {"day": day + 1, "regime": regime, "updates": {}}
+                    # Load env from parent directory
+                    env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
+                    dotenv.load_dotenv(env_path)
+
+                    # Initialize Gemini LLM
+                    llm = None
+                    try:
+                        llm = GeminiProvider()
+                        if llm.is_available():
+                            print(f"[Coach Day {day+1}] Using Gemini LLM: {llm.model}")
+                        else:
+                            llm = None
+                    except Exception as e:
+                        print(f"[Coach] LLM error: {e}")
+                        llm = None
+
+                    coach = AICoach(use_llm=(llm is not None), llm_provider=llm)
+
+                    session = {"day": day + 1, "regime": regime, "updates": {}, "llm_used": llm is not None}
 
                     for pid, state in players.items():
                         recent_trades = state.trades[-50:] if len(state.trades) > 50 else state.trades
@@ -536,7 +555,15 @@ def run_5player_backtest(
                             "weights_changed": len(analysis.weight_changes),
                             "indicators_added": list(analysis.indicators_to_add.keys()),
                             "indicators_removed": analysis.indicators_to_remove,
+                            "best_indicators": analysis.best_indicators,
+                            "worst_indicators": analysis.worst_indicators,
+                            "llm_recommendations": analysis.llm_recommendations,
+                            "llm_analysis": analysis.llm_analysis[:500] if analysis.llm_analysis else "",
                         }
+
+                        # Print coach summary
+                        summary = coach.get_coach_summary(analysis)
+                        print(f"  [Coach] {pid} ({state.config.get('label')}): {summary}")
 
                     coach_sessions.append(session)
 
@@ -552,6 +579,9 @@ def run_5player_backtest(
                             elif wr > 0.55:
                                 state.config["entry_threshold"] = max(0.20, state.config["entry_threshold"] - 0.02)
 
+    # Check if LLM was used in any session
+    llm_was_used = any(s.get("llm_used", False) for s in coach_sessions) if coach_sessions else False
+
     # Compile results
     results = {
         "run_time": datetime.now().isoformat(),
@@ -559,6 +589,8 @@ def run_5player_backtest(
         "symbols": len(data),
         "coach_interval": coach_interval,
         "coach_sessions": len(coach_sessions),
+        "coach_sessions_detail": coach_sessions,  # Full details for display
+        "llm_used": llm_was_used,
         "market_regime": detect_regime(total_days - 1),
         "players": {},
         "team_total_pnl": 0,
@@ -853,9 +885,11 @@ def render_continuous_backtest(memory=None):
         latest = results[-1]
         st.subheader(f"Latest Run Details (Run #{latest.get('run_number', '?')})")
 
+        llm_used = latest.get("llm_used", False)
         st.markdown(f"**Market Regime:** {latest.get('market_regime', 'unknown')} | "
                     f"**Days:** {latest.get('total_days', 0)} | "
-                    f"**Coach Sessions:** {latest.get('coach_sessions', 0)}")
+                    f"**Coach Sessions:** {latest.get('coach_sessions', 0)} | "
+                    f"**LLM Coach:** {'✅ Active' if llm_used else '❌ Disabled'}")
 
         # Per-player details
         cols = st.columns(5)
@@ -870,6 +904,49 @@ def render_continuous_backtest(memory=None):
                 )
                 st.caption(f"Trades: {pdata.get('trades', 0)} | Sharpe: {pdata.get('sharpe', 0):.2f}")
                 st.caption(f"Indicators: {pdata.get('num_indicators', 0)} | Entry: {pdata.get('final_threshold', 0.30):.2f}")
+
+        # Coach Optimization Details
+        st.subheader("🧠 AI Coach Optimization Details")
+
+        coach_sessions_data = latest.get("coach_sessions_detail", [])
+        if coach_sessions_data:
+            for session in coach_sessions_data[-3:]:  # Last 3 sessions
+                st.markdown(f"**Day {session.get('day', '?')} | Regime: {session.get('regime', 'unknown')} | LLM: {'✅' if session.get('llm_used') else '❌'}**")
+                updates = session.get("updates", {})
+
+                if updates:
+                    coach_cols = st.columns(len(updates))
+                    for idx, (pid, update) in enumerate(updates.items()):
+                        with coach_cols[idx]:
+                            label = update.get("label", pid)
+                            st.markdown(f"**{label}**")
+
+                            # Performance
+                            wr = update.get("win_rate", 0)
+                            pnl = update.get("pnl", 0)
+                            st.caption(f"WR: {wr:.1%} | P&L: ₹{pnl:+,.0f}")
+
+                            # Changes made
+                            weights_changed = update.get("weights_changed", 0)
+                            added = update.get("indicators_added", [])
+                            removed = update.get("indicators_removed", [])
+
+                            if weights_changed > 0:
+                                st.caption(f"⚖️ {weights_changed} weights adjusted")
+                            if added:
+                                st.caption(f"➕ Added: {', '.join(added[:3])}")
+                            if removed:
+                                st.caption(f"➖ Removed: {', '.join(removed[:3])}")
+
+                            # LLM recommendations
+                            llm_recs = update.get("llm_recommendations", [])
+                            if llm_recs:
+                                with st.expander("LLM Insights"):
+                                    for rec in llm_recs[:3]:
+                                        st.markdown(f"• {rec}")
+                st.divider()
+        else:
+            st.info("No coach optimization sessions recorded yet. Run more days or decrease coach interval.")
 
     # Run history table
     st.subheader("Run History")
