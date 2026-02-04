@@ -23,16 +23,80 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS
+# Custom CSS for light theme with better visibility
 st.markdown(f"""
 <style>
     .stApp {{
         background-color: {COACH_COLORS['background']};
+        color: {COACH_COLORS['text']};
     }}
-    .stMetric {{
-        background-color: {COACH_COLORS['card_bg']};
-        padding: 10px;
-        border-radius: 5px;
+
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {{
+        background-color: #f0f2f6;
+    }}
+    [data-testid="stSidebar"] .stMarkdown {{
+        color: #1a1a2e;
+    }}
+
+    /* Headers */
+    h1, h2, h3, h4, h5, h6 {{
+        color: #1a1a2e !important;
+    }}
+
+    /* Text */
+    p, span, label, .stMarkdown {{
+        color: #333333 !important;
+    }}
+
+    /* Metrics */
+    [data-testid="stMetricValue"] {{
+        color: #1a1a2e !important;
+        font-weight: bold;
+    }}
+    [data-testid="stMetricLabel"] {{
+        color: #555555 !important;
+    }}
+
+    /* Cards/Expanders */
+    .stExpander {{
+        background-color: #ffffff;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+    }}
+
+    /* Info boxes */
+    .stAlert {{
+        background-color: #e7f3ff;
+        color: #0c5460;
+        border: 1px solid #b8daff;
+    }}
+
+    /* Success boxes */
+    .stSuccess {{
+        background-color: #d4edda;
+        color: #155724;
+    }}
+
+    /* Buttons */
+    .stButton > button {{
+        background-color: #0066cc;
+        color: white;
+        border: none;
+        font-weight: 600;
+    }}
+    .stButton > button:hover {{
+        background-color: #0052a3;
+    }}
+
+    /* Tables */
+    .stDataFrame {{
+        background-color: #ffffff;
+    }}
+
+    /* Input widgets */
+    .stSlider, .stNumberInput, .stSelectbox {{
+        color: #333333;
     }}
 </style>
 """, unsafe_allow_html=True)
