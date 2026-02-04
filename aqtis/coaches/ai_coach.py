@@ -22,35 +22,46 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# All available indicators by category (verified against IndicatorUniverse)
-AVAILABLE_INDICATORS = [
-    # Momentum
-    "RSI_7", "RSI_14", "RSI_21", "STOCH_5_3", "STOCH_14_3", "STOCH_21_5",
-    "MACD_12_26_9", "MACD_8_17_9", "MACD_5_35_5", "CCI_14", "CCI_20",
-    "CMO_14", "CMO_20", "MOM_10", "MOM_20", "ROC_10", "ROC_20",
-    "WILLR_14", "WILLR_28", "TSI_13_25", "UO_7_14_28", "AO_5_34",
-    "KST", "COPPOCK",
-    # Trend
-    "ADX_14", "ADX_20", "AROON_14", "AROON_25",
-    "SUPERTREND_7_3", "SUPERTREND_10_2", "SUPERTREND_20_3", "PSAR",
-    "VORTEX_14", "LINREG_SLOPE_14", "LINREG_SLOPE_25",
-    # Volatility
-    "ATR_14", "ATR_20", "NATR_14", "NATR_20",
-    "BBANDS_20_2", "BBANDS_20_2.5", "BBANDS_10_1.5",
-    "KC_20_1.5", "KC_20_2",
-    "DONCHIAN_20", "DONCHIAN_50", "TRUERANGE", "MASS_INDEX",
-    # Volume
-    "OBV", "AD", "ADOSC_3_10", "CMF_20", "CMF_21", "MFI_14", "MFI_20",
-    "EFI_13", "EFI_20", "NVI", "PVI",
-    # Overlap/Moving Averages
-    "EMA_10", "EMA_20", "EMA_50", "EMA_100", "EMA_200",
-    "SMA_10", "SMA_20", "SMA_50", "SMA_100", "SMA_200",
-    "WMA_10", "WMA_20", "DEMA_10", "DEMA_20", "TEMA_10", "TEMA_20",
-    "HMA_9", "HMA_16", "VWMA_10", "VWMA_20",
-    "KAMA_10", "KAMA_20", "T3_5", "T3_10",
-    # Other
-    "ZSCORE_20", "ZSCORE_50",
-]
+# Dynamically load indicators from the actual IndicatorUniverse
+def _load_available_indicators():
+    """Load available indicators from the actual IndicatorUniverse."""
+    try:
+        from trading_evolution.indicators.universe import IndicatorUniverse
+        universe = IndicatorUniverse()
+        universe.load_all()
+        return universe.get_all()
+    except ImportError:
+        # Fallback to hardcoded list if universe not available
+        return [
+            # Momentum
+            "RSI_7", "RSI_14", "RSI_21", "STOCH_5_3", "STOCH_14_3", "STOCH_21_5",
+            "MACD_12_26_9", "MACD_8_17_9", "MACD_5_35_5", "CCI_14", "CCI_20",
+            "CMO_14", "CMO_20", "MOM_10", "MOM_20", "ROC_10", "ROC_20",
+            "WILLR_14", "WILLR_28", "TSI_13_25", "UO_7_14_28", "AO_5_34",
+            "KST", "COPPOCK",
+            # Trend
+            "ADX_14", "ADX_20", "AROON_14", "AROON_25",
+            "SUPERTREND_7_3", "SUPERTREND_10_2", "SUPERTREND_20_3", "PSAR",
+            "VORTEX_14", "LINREG_SLOPE_14", "LINREG_SLOPE_25",
+            # Volatility
+            "ATR_14", "ATR_20", "NATR_14", "NATR_20",
+            "BBANDS_20_2", "KC_20_2",
+            "DONCHIAN_20", "DONCHIAN_50", "TRUERANGE", "MASS_INDEX",
+            # Volume
+            "OBV", "AD", "ADOSC_3_10", "CMF_20", "CMF_21", "MFI_14", "MFI_20",
+            "EFI_13", "EFI_20", "NVI", "PVI",
+            # Overlap/Moving Averages
+            "EMA_10", "EMA_20", "EMA_50", "EMA_100", "EMA_200",
+            "SMA_10", "SMA_20", "SMA_50", "SMA_100", "SMA_200",
+            "WMA_10", "WMA_20", "DEMA_10", "DEMA_20", "TEMA_10", "TEMA_20",
+            "HMA_9", "HMA_16", "VWMA_10", "VWMA_20",
+            "KAMA_10", "KAMA_20", "T3_5", "T3_10",
+            # Other
+            "ZSCORE_20", "ZSCORE_50",
+        ]
+
+# Load indicators at module level
+AVAILABLE_INDICATORS = _load_available_indicators()
 
 # Player style profiles
 PLAYER_STYLES = {
@@ -267,9 +278,37 @@ class AICoach:
         # Compact prompt for JSON output
         current_inds = list(current_weights.keys())
 
+        # Build valid indicator list from categories appropriate for player style
+        valid_inds_for_prompt = []
+        try:
+            from trading_evolution.indicators.universe import IndicatorUniverse
+            universe = IndicatorUniverse()
+            universe.load_all()
+
+            # Get category-specific indicators based on player style
+            if analysis.player_label in ["Aggressive", "Momentum"]:
+                valid_inds_for_prompt = universe.get_by_category("momentum")[:15]
+            elif analysis.player_label == "VolBreakout":
+                valid_inds_for_prompt = universe.get_by_category("volatility")[:10] + universe.get_by_category("momentum")[:5]
+            elif analysis.player_label == "Conservative":
+                valid_inds_for_prompt = universe.get_by_category("trend")[:10] + universe.get_by_category("overlap")[:5]
+            else:  # Balanced
+                valid_inds_for_prompt = (universe.get_by_category("momentum")[:5] +
+                                         universe.get_by_category("trend")[:5] +
+                                         universe.get_by_category("volatility")[:5])
+        except ImportError:
+            valid_inds_for_prompt = ["RSI_7", "RSI_14", "STOCH_5_3", "MACD_12_26_9", "CCI_14", "CMO_14",
+                                     "ADX_14", "SUPERTREND_7_3", "ATR_14", "NATR_14", "BBANDS_20_2",
+                                     "OBV", "CMF_20", "MFI_14", "EMA_20", "DEMA_20"]
+
+        valid_inds_str = ", ".join(valid_inds_for_prompt[:20])  # Limit to 20 for prompt size
+
         prompt = f"""Optimize {analysis.player_label} trader. Stats: {analysis.total_trades} trades, {analysis.win_rate:.0%} WR, ${analysis.total_pnl:+.0f}. Regime: {market_regime}. Current entry={current_config.get('entry_threshold')}.
 
 Trades: {json.dumps(trade_details[:5])}
+
+Current indicators: {', '.join(current_inds[:8])}
+{history_summary}
 
 Return complete JSON object with ALL these fields:
 - weights: object with 8-10 indicator names as keys, float values 0.1-1.0
@@ -278,12 +317,14 @@ Return complete JSON object with ALL these fields:
 - min_hold_bars: int 2-8
 - best_indicators: array of 2-3 indicator names
 - worst_indicators: array of 0-2 indicator names
+- add_indicators: object with indicator names to add and their weights
+- remove_indicators: array of indicator names to remove from current set
 - recommendations: array of exactly 2 short strings
 - reasoning: one short sentence
 
-Valid indicators: RSI_7, RSI_14, STOCH_5_3, MACD_12_26_9, CCI_14, CMO_14, WILLR_14, TSI_13_25, ADX_14, SUPERTREND_7_3, ATR_14, NATR_14, BBANDS_20_2, OBV, CMF_20, MFI_14, EMA_20, DEMA_20, HMA_9
+IMPORTANT: Only use indicators from this list: {valid_inds_str}
 
-Rules: Low WR means higher entry threshold. {analysis.player_label} style = {'momentum/volatility focus' if analysis.player_label in ['Aggressive', 'Momentum', 'VolBreakout'] else 'trend/stability focus'}"""
+Rules: Low WR (<40%) means higher entry threshold. High WR (>55%) means lower threshold. {analysis.player_label} style = {'momentum/volatility focus' if analysis.player_label in ['Aggressive', 'Momentum', 'VolBreakout'] else 'trend/stability focus'}"""
 
         try:
             response = self.llm._call(prompt, temperature=0.3, max_tokens=4000, json_mode=True)
